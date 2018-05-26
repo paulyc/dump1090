@@ -290,6 +290,7 @@ void showHelp(void) {
 "--gain <db>              Set gain (default: max gain. Use -10 for auto-gain)\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz)\n"
 "--interactive            Interactive mode refreshing data on screen. Implies --throttle\n"
+"--interactive-rows <num> Max number of rows in interactive mode (default: 22)\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60)\n"
 "--raw                    Show only messages hex values\n"
 "--net                    Enable networking\n"
@@ -318,7 +319,7 @@ void showHelp(void) {
 "--aggressive             More CPU for more messages (two bits fixes, ...)\n"
 #endif
 "--mlat                   display raw messages in Beast ascii mode\n"
-"--stats                  With --ifile print stats at exit. No other output\n"
+"--stats                  Print stats at exit\n"
 "--stats-range            Collect/show range histogram\n"
 "--stats-every <seconds>  Show and reset stats every <seconds> seconds\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes)\n"
@@ -328,6 +329,10 @@ void showHelp(void) {
 "--debug <flags>          Debug mode (verbose), see README for details\n"
 "--quiet                  Disable output to stdout. Use for daemon applications\n"
 "--show-only <addr>       Show only messages from the given ICAO on stdout\n"
+"--ppm <error>            Set receiver error in parts per million (default 0)\n"
+#ifdef HAVE_RTL_BIAST
+"--enable-rtlsdr-biast    Set bias tee supply on (default off)\n"
+#endif
 "--write-json <dir>       Periodically write json output to <dir> (for serving by a separate webserver)\n"
 "--write-json-every <t>   Write json output every t seconds (default 1)\n"
 "--json-location-accuracy <n>  Accuracy of receiver location in json metadata: 0=no location, 1=approximate, 2=exact\n"
@@ -551,6 +556,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--aggressive")) {
 #ifdef ALLOW_AGGRESSIVE
             Modes.nfix_crc = MODES_MAX_BITERRORS;
+            Modes.net_verbatim = 1;
 #else
             fprintf(stderr, "warning: --aggressive not supported in this build, option ignored.\n");
 #endif
@@ -595,6 +601,12 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
+        } else if (!strcmp(argv[j],"--ppm") && more) {
+            Modes.ppm_error = atoi(argv[++j]);
+#ifdef HAVE_RTL_BIAST
+        } else if (!strcmp(argv[j], "--enable-rtlsdr-biast")) {
+            Modes.enable_rtlsdr_biast = 1;
+#endif
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
         } else if (!strcmp(argv[j],"--show-only") && more) {

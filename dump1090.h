@@ -56,7 +56,7 @@
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-mutability"
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
 #endif
 
 // ============================= Include files ==========================
@@ -87,6 +87,9 @@
 
 // ============================= #defines ===============================
 
+#define ALLOW_AGGRESSIVE           1
+#define HAVE_RTL_BIAST             1
+#define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
 #define MODES_DEFAULT_HEIGHT       700
@@ -282,6 +285,10 @@ struct {                             // Internal state
     char *        dev_name;
     int           gain;
     int           freq;
+    int           ppm_error;
+#ifdef HAVE_RTL_BIAST
+    int           enable_rtlsdr_biast;
+#endif
 
     // Networking
     char           aneterr[ANET_ERR_LEN];
