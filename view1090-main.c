@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--no-crc-check")) {
             Modes.check_crc = 0;
         } else if (!strcmp(argv[j],"--fix")) {
-            Modes.nfix_crc = 1;
+            Modes.nfix_crc = MODES_MAX_BITERRORS;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.nfix_crc = 0;
         } else if (!strcmp(argv[j],"--aggressive")) {

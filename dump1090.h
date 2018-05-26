@@ -87,7 +87,6 @@
 
 // ============================= #defines ===============================
 
-#define ALLOW_AGGRESSIVE           1
 #define HAVE_RTL_BIAST             1
 #define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
