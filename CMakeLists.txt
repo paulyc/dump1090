@@ -81,6 +81,9 @@ target_link_libraries(
 	#"-Wl,-soname,lib1090.so.0"
 )
 
+set_property(TARGET 1090 PROPERTY SOVERSION 0)
+set_property(TARGET 1090 PROPERTY VERSION 0.0)
+
 add_executable(dump1090 dump1090-main.c)
 target_link_libraries(dump1090 1090 ${EXTRA_LIBS})
 add_executable(faup1090 faup1090-main.c)
@@ -88,3 +91,8 @@ target_link_libraries(faup1090 1090 ${EXTRA_LIBS})
 add_executable(view1090 view1090-main.c)
 target_link_libraries(view1090 1090 ${EXTRA_LIBS})
 
+INSTALL(
+    TARGETS dump1090 faup1090 view1090 1090
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+)
