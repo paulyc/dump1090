@@ -106,6 +106,43 @@ void faupInit(void) {
     modeACInit();
 }
 
+
+
+//
+//=========================================================================
+//
+int faupMainLoop(char *bo_connect_ipaddr, int bo_connect_port) {
+    struct client *c;
+    struct net_service *beast_input, *fatsv_output;
+
+    // Set up input connection
+    beast_input = makeBeastInputService();
+    c = serviceConnect(beast_input, bo_connect_ipaddr, bo_connect_port);
+    if (!c) {
+        fprintf (stderr,
+                 "faup1090: failed to connect to %s:%d (is dump1090 running?): %s\n",
+                 bo_connect_ipaddr, bo_connect_port, Modes.aneterr);
+        exit (1);
+    }
+
+    sendBeastSettings(c, "Cdfj"); // Beast binary, no filters, CRC checks on, no mode A/C
+
+    // Set up output connection on stdout
+    fatsv_output = makeFatsvOutputService();
+    createGenericClient(fatsv_output, STDOUT_FILENO);
+
+    // Run it until we've lost either connection
+    while (!Modes.exit && beast_input->connections && fatsv_output->connections) {
+        faupBackgroundTasks();
+        usleep(100000);
+    }
+
+    return 0;
+}
+//
+//=========================================================================
+//
+
 //
 //=========================================================================
 //

@@ -568,6 +568,7 @@ void receiverPositionChanged(float lat, float lon, float alt);
 
 void faupInitConfig(void);
 void faupInit(void);
+int faupMainLoop(char *bo_connect_ipaddr, int bo_connect_port);
 void faupBackgroundTasks(void);
 
 void view1090InitConfig(void);

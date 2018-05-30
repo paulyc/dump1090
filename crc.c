@@ -374,8 +374,8 @@ void modesChecksumInit(int fixBits)
         // Detect out to 4 bit errors; this reduces our 2-bit coverage to about 65%.
         // This can take a little while - tell the user.
         fprintf(stderr, "Preparing error correction tables.. ");
-        bitErrorTable_short = prepareErrorTable(MODES_SHORT_MSG_BITS, 2, 4, &bitErrorTableSize_short);
-        bitErrorTable_long = prepareErrorTable(MODES_LONG_MSG_BITS, 2, 4, &bitErrorTableSize_long);
+        bitErrorTable_short = prepareErrorTable(MODES_SHORT_MSG_BITS, 3, 5, &bitErrorTableSize_short);
+        bitErrorTable_long = prepareErrorTable(MODES_LONG_MSG_BITS, 3, 5, &bitErrorTableSize_long);
         fprintf(stderr, "done.\n");
         break;
     }

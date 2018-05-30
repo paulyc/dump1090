@@ -33,11 +33,11 @@ set_target_properties(
 )
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11 -D_DEFAULT_SOURCE")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
 
 #for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-unknown-warning-option -Wno-format-truncation")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
 set(COMPAT_SOURCES)
 set(EXTRA_LIBS "-lm -lncurses -lpthread")
 
@@ -78,7 +78,7 @@ target_link_libraries(
 
 	usb-1.0
 	rtlsdr
-	"-Wl,-soname,lib1090.so.0"
+	#"-Wl,-soname,lib1090.so.0"
 )
 
 add_executable(dump1090 dump1090-main.c)

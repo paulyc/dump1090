@@ -123,22 +123,8 @@ static void showHelp(void) {
     );
 }
 
-//
-//=========================================================================
-//
-//
-//=========================================================================
-//
-int main(int argc, char **argv) {
+static void parseArgs(int argc, char **argv) {
     int j;
-
-    // Set sane defaults
-    modesInitConfig();
-
-    // signal handlers:
-    signal(SIGINT, sigintHandler);
-    signal(SIGTERM, sigtermHandler);
-
     // Parse the command line options
     for (j = 1; j < argc; j++) {
         int more = j+1 < argc; // There are more arguments
@@ -294,6 +280,25 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+}
+
+//
+//=========================================================================
+//
+//
+//=========================================================================
+//
+int main(int argc, char **argv) {
+    int j;
+
+    // Set sane defaults
+    modesInitConfig();
+
+    // signal handlers:
+    signal(SIGINT, sigintHandler);
+    signal(SIGTERM, sigtermHandler);
+
+    parseArgs(argc, argv);
 
 #ifdef _WIN32
     // Try to comply with the Copyright license conditions for binary distribution

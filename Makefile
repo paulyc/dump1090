@@ -100,16 +100,16 @@ all: dump1090 view1090 faup1090
 %.o: %.c *.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-lib1090.so.0: anet.o interactive.o mode_ac.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
+lib1090.so.0: anet.o interactive.o mode_ac.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o dump1090.o view1090.o faup1090.o $(SDR_OBJ) $(COMPAT)
 	gcc $(LDFLAGS_SHARED) -o $@ $(LDFLAGS) $(LIBS_SDR) $^
 
-dump1090: dump1090.o lib1090.so.0
+dump1090: dump1090-main.o lib1090.so.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-view1090: view1090.o lib1090.so.0
+view1090: view1090-main.o lib1090.so.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-faup1090: faup1090.o lib1090.so.0
+faup1090: faup1090-main.o lib1090.so.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
 clean:
