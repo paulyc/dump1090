@@ -559,8 +559,27 @@ void  interactiveInit(void);
 void  interactiveShowData(void);
 void  interactiveCleanup(void);
 
+void log_with_timestamp(const char *format, ...) __attribute__((format (printf, 1, 2) ));
+
 // Provided by dump1090.c / view1090.c / faup1090.c
+void dump1090ReceiverPositionChanged(float lat, float lon, float alt);
+void faup1090ReceiverPositionChanged(float lat, float lon, float alt);
+void view1090ReceiverPositionChanged(float lat, float lon, float alt);
 void receiverPositionChanged(float lat, float lon, float alt);
+
+void faupInitConfig(void);
+void faupInit(void);
+void faupBackgroundTasks(void);
+
+void view1090InitConfig(void);
+void view1090Init(void);
+
+void modesInitConfig(void);
+void modesInit(void);
+void *readerThreadEntryPoint(void *arg);
+void snipMode(int level);
+void display_total_stats(void);
+void backgroundTasks(void);
 
 #ifdef __cplusplus
 }
