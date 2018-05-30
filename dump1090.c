@@ -101,6 +101,7 @@ void modesInitConfig(void) {
     Modes.gain                    = MODES_MAX_GAIN;
     Modes.freq                    = MODES_DEFAULT_FREQ;
     Modes.check_crc               = 1;
+    Modes.nfix_crc                = MODES_MAX_BITERRORS;
     Modes.net_heartbeat_interval  = MODES_NET_HEARTBEAT_INTERVAL;
     Modes.net_input_raw_ports     = strdup("30001");
     Modes.net_output_raw_ports    = strdup("30002");
