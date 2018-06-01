@@ -33,11 +33,11 @@ set_target_properties(
 )
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11 -D_DEFAULT_SOURCE")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
 
 #for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-unknown-warning-option -Wno-format-truncation")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
 set(COMPAT_SOURCES)
 set(EXTRA_LIBS "-lm -lncurses -lpthread")
 
@@ -81,6 +81,9 @@ target_link_libraries(
 	"-Wl,-soname,lib1090.so.0"
 )
 
+set_property(TARGET 1090 PROPERTY SOVERSION 0)
+set_property(TARGET 1090 PROPERTY VERSION 0.0.0)
+
 add_executable(dump1090 dump1090-main.c)
 target_link_libraries(dump1090 1090 ${EXTRA_LIBS})
 add_executable(faup1090 faup1090-main.c)
@@ -88,3 +91,8 @@ target_link_libraries(faup1090 1090 ${EXTRA_LIBS})
 add_executable(view1090 view1090-main.c)
 target_link_libraries(view1090 1090 ${EXTRA_LIBS})
 
+INSTALL(
+    TARGETS dump1090 faup1090 view1090 1090
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+)
