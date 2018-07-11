@@ -19,32 +19,20 @@ cmake_minimum_required(VERSION 3.11)
 
 project(lib1090)
 
-#for android
-#add_subdirectory(deps)
-
-#for desktop linux with libusb-1.0 installed
-add_library(usb-1.0 SHARED IMPORTED)
-set_target_properties(
-	usb-1.0
-
-	PROPERTIES IMPORTED_LOCATION
-
-	/usr/lib/libusb-1.0.so.0
-)
-include_directories( /usr/include/libusb-1.0 )
+find_library(usb-1.0 SHARED)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
 
-#for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
-set(COMPAT_SOURCES)
-set(EXTRA_LIBS "-lm -lncurses -lpthread")
-
-#for darwin build
-#set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T)
-#set(EXTRA_LIBS "-lm -lncurses -lpthread")
+if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c compat/clock_gettime/clock_gettime.c)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_GETTIME -DMISSING_NANOSLEEP -DCLOCKID_T")
+  set(EXTRA_LIBS "-lm -lncurses -lpthread")
+elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
+  set(COMPAT_SOURCES)
+  set(EXTRA_LIBS "-lm -lncurses -lpthread")
+endif ()
 
 add_library(
 	1090
@@ -58,7 +46,6 @@ add_library(
 	crc.c
 	demod_2400.c
 	icao_filter.c
-	event_loop.c
 	interactive.c
 	mode_ac.c
 	mode_s.c
@@ -78,7 +65,7 @@ target_link_libraries(
 
 	usb-1.0
 	rtlsdr
-	"-Wl,-soname,lib1090.so.0"
+	${EXTRA_LIBS}
 )
 
 set_property(TARGET 1090 PROPERTY SOVERSION 0)

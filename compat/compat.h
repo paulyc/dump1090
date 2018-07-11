@@ -17,7 +17,6 @@
 # include <machine/endian.h>
 # define le16toh(x) OSSwapLittleToHostInt16(x)
 # define le32toh(x) OSSwapLittleToHostInt32(x)
-
 #else // other platforms
 
 # include <endian.h>
