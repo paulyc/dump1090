@@ -15,3 +15,10 @@ view1090
 faup1090
 package-wheezy
 .DS_Store
+.idea/workspace.xml
+CMakeFiles
+CMakeScripts
+CMakeCache.txt
+build
+cmake_install.cmake
+.DS_Store

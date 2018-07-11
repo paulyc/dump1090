@@ -1,6 +1,12 @@
 #ifndef CLOCK_NANOSLEEP_H
 #define CLOCK_NANOSLEEP_H
 
+#ifdef __MACH__
+  #include <mach/mach_time.h> // Apple-only, but this isn't inclued on other BSDs
+  #include <mach/clock.h>
+  #include <mach/mach.h>
+#endif
+
 #ifdef _CLOCKID_T_DEFINED_
 #define CLOCKID_T
 #endif

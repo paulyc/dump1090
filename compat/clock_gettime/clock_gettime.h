@@ -1,7 +1,15 @@
 #ifndef CLOCK_GETTIME_H
 #define CLOCK_GETTIME_H
 
-#include <mach/mach_time.h> // Apple-only, but this isn't inclued on other BSDs
+#include <time.h>
+#ifdef __MACH__
+  #include <mach/clock.h>
+  #include <mach/mach.h>
+  #include <mach/mach_time.h>
+  #define CLOCK_ID_T clock_id_t
+#else
+  #define CLOCK_ID_T clockid_t
+#endif
 
 #ifdef _CLOCKID_T_DEFINED_
 #define CLOCKID_T
@@ -20,7 +28,7 @@ typedef enum
 
 struct timespec;
 
-static mach_timebase_info_data_t __clock_gettime_inf;
+static struct mach_task_basic_info __clock_gettime_inf;
 
 int clock_gettime(clockid_t clk_id, struct timespec *tp);
 

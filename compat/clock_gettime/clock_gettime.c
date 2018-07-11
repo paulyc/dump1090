@@ -79,6 +79,8 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp)
 
     uint64_t start, end, delta, nano;
 
+    static mach_timebase_info_data_t __clock_gettime_inf;
+
     /*
     task_basic_info_data_t tinfo;
     task_thread_times_info_data_t ttinfo;

@@ -240,6 +240,11 @@ bool rtlsdrOpen(void) {
                     rtlsdr_get_tuner_gain(RTLSDR.dev)/10.0);
         }
     }
+    
+    if (Modes.enable_rtlsdr_biast) {
+        rtlsdr_set_bias_tee(RTLSDR.dev, Modes.enable_rtlsdr_biast);
+        fprintf(stderr, "activated bias-T on GPIO PIN 0\n");
+    }
 
     if (RTLSDR.digital_agc) {
         fprintf(stderr, "rtlsdr: enabling digital AGC\n");
@@ -261,7 +266,7 @@ bool rtlsdrOpen(void) {
         rtlsdrClose();
         return false;
     }
-
+    
     return true;
 }
 
