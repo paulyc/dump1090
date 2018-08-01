@@ -27,6 +27,9 @@
 #ifdef ENABLE_BLADERF
 #  include "sdr_bladerf.h"
 #endif
+#ifdef ENABLE_SOAPYSDR
+#  include "sdr_soapysdr.h"
+#endif
 
 typedef struct {
     const char *name;
@@ -77,6 +80,10 @@ static bool unsupportedOpen()
 }
 
 static sdr_handler sdr_handlers[] = {
+#ifdef ENABLE_SOAPYSDR
+    { "soapysdr", SDR_SOAPYSDR, soapyInitConfig, soapyShowHelp, soapyHandleOption, soapyOpen, soapyRun, soapyClose },
+#endif
+    
 #ifdef ENABLE_RTLSDR
     { "rtlsdr", SDR_RTLSDR, rtlsdrInitConfig, rtlsdrShowHelp, rtlsdrHandleOption, rtlsdrOpen, rtlsdrRun, rtlsdrClose },
 #endif

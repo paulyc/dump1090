@@ -22,6 +22,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Returns system time in milliseconds */
 uint64_t mstime(void);
 
@@ -51,4 +55,7 @@ void start_cpu_timing(struct timespec *start_time);
 /* add difference between start_time and the current CPU time to add_to */
 void end_cpu_timing(const struct timespec *start_time, struct timespec *add_to);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

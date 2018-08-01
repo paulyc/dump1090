@@ -43,6 +43,9 @@ static void showHelp(void) {
 #ifdef ENABLE_RTLSDR
            "ENABLE_RTLSDR "
 #endif
+#ifdef ENABLE_SOAPYSDR
+           "ENABLE_SOAPYSDR "
+#endif
 #ifdef ENABLE_BLADERF
            "ENABLE_BLADERF "
 #endif
@@ -294,6 +297,8 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+    
+    Modes.sdr_type = SDR_SOAPYSDR;
 
 #ifdef _WIN32
     // Try to comply with the Copyright license conditions for binary distribution
@@ -331,7 +336,9 @@ int main(int argc, char **argv) {
 
     // If the user specifies --net-only, just run in order to serve network
     // clients without reading data from the RTL device
+    
     if (Modes.sdr_type == SDR_NONE) {
+        printf("none\n");
         while (!Modes.exit) {
             struct timespec start_time;
 
@@ -342,6 +349,7 @@ int main(int argc, char **argv) {
             usleep(100000);
         }
     } else {
+        printf("hi\n");
         int watchdogCounter = 10; // about 1 second
 
         // Create the thread that will read the data from the device.

@@ -19,12 +19,16 @@ cmake_minimum_required(VERSION 3.11)
 
 project(lib1090)
 
-find_library(usb-1.0 SHARED)
+find_library(usb-1.0 SHARED /usr/local/lib)
+find_library(SoapySDR SHARED /usr/local/lib)
 
 set(CMAKE_MODULE_PATH /usr/local ${CMAKE_MODULE_PATH})
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -UENABLE_BLADERF -DHAVE_RTL_BIAST -std=c11")
-set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
+include_directories(/usr/local/include)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -UENABLE_RTLSDR -DENABLE_SOAPYSDR -UENABLE_BLADERF  -std=c11 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g")
+set(SDR_SOURCES sdr.c sdr_ifile.c  sdr_soapysdr.cpp)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
   set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c compat/clock_gettime/clock_gettime.c)
@@ -67,6 +71,7 @@ target_link_libraries(
 
 	usb-1.0
 	rtlsdr
+	SoapySDR
 	${EXTRA_LIBS}
 )
 

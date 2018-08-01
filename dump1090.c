@@ -98,6 +98,7 @@ void modesInitConfig(void) {
     memset(&Modes, 0, sizeof(Modes));
 
     // Now initialise things that should not be 0/NULL to their defaults
+    Modes.sdr_type                = SDR_SOAPYSDR;
     Modes.gain                    = MODES_MAX_GAIN;
     Modes.freq                    = MODES_DEFAULT_FREQ;
     Modes.check_crc               = 1;
