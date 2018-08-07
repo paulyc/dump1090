@@ -5,20 +5,20 @@
 // Copyright (c) 2014-2017 Oliver Jowett <oliver@mutability.co.uk>
 // Copyright (c) 2017 FlightAware LLC
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -57,6 +57,7 @@ static struct {
     rtlsdr_dev_t *dev;
     bool digital_agc;
     int ppm_error;
+    int direct_sampling;
 
     iq_convert_fn converter;
     struct converter_state *converter_state;
@@ -71,6 +72,7 @@ void rtlsdrInitConfig()
     RTLSDR.dev = NULL;
     RTLSDR.digital_agc = false;
     RTLSDR.ppm_error = 0;
+    RTLSDR.direct_sampling = 0;
     RTLSDR.converter = NULL;
     RTLSDR.converter_state = NULL;
 }
@@ -142,6 +144,7 @@ void rtlsdrShowHelp()
     printf("--device <index|serial>  select device by index or serial number\n");
     printf("--enable-agc             enable digital AGC (not tuner AGC!)\n");
     printf("--ppm <correction>       set oscillator frequency correction in PPM\n");
+    printf("--direct <0|1|2>         set direct sampling mode\n");
     printf("\n");
 }
 
@@ -154,6 +157,8 @@ bool rtlsdrHandleOption(int argc, char **argv, int *jptr)
         RTLSDR.digital_agc = true;
     } else if (!strcmp(argv[j], "--ppm") && more) {
         RTLSDR.ppm_error = atoi(argv[++j]);
+    } else if (!strcmp(argv[j], "--direct") && more) {
+        RTLSDR.direct_sampling = atoi(argv[++j]);
     } else {
         return false;
     }
@@ -196,39 +201,44 @@ bool rtlsdrOpen(void) {
     }
 
     // Set gain, frequency, sample rate, and reset the device
-    if (Modes.gain == MODES_AUTO_GAIN) {
-        fprintf(stderr, "rtlsdr: enabling tuner AGC\n");
-        rtlsdr_set_tuner_gain_mode(RTLSDR.dev, 0);
+    if (RTLSDR.direct_sampling) {
+        fprintf(stderr, "rtlsdr: direct sampling from input %d\n", RTLSDR.direct_sampling);
+        rtlsdr_set_direct_sampling(RTLSDR.dev, RTLSDR.direct_sampling);
     } else {
-        int *gains;
-        int numgains;
+        if (Modes.gain == MODES_AUTO_GAIN) {
+            fprintf(stderr, "rtlsdr: enabling tuner AGC\n");
+            rtlsdr_set_tuner_gain_mode(RTLSDR.dev, 0);
+        } else {
+            int *gains;
+            int numgains;
 
-        numgains = rtlsdr_get_tuner_gains(RTLSDR.dev, NULL);
-        if (numgains <= 0) {
-            fprintf(stderr, "rtlsdr: error getting tuner gains\n");
-            return false;
-        }
+            numgains = rtlsdr_get_tuner_gains(RTLSDR.dev, NULL);
+            if (numgains <= 0) {
+                fprintf(stderr, "rtlsdr: error getting tuner gains\n");
+                return false;
+            }
 
-        gains = malloc(numgains * sizeof(int));
-        if (rtlsdr_get_tuner_gains(RTLSDR.dev, gains) != numgains) {
-            fprintf(stderr, "rtlsdr: error getting tuner gains\n");
+            gains = malloc(numgains * sizeof(int));
+            if (rtlsdr_get_tuner_gains(RTLSDR.dev, gains) != numgains) {
+                fprintf(stderr, "rtlsdr: error getting tuner gains\n");
+                free(gains);
+                return false;
+            }
+
+            int target = (Modes.gain == MODES_MAX_GAIN ? 9999 : Modes.gain);
+            int closest = -1;
+
+            for (int i = 0; i < numgains; ++i) {
+                if (closest == -1 || abs(gains[i] - target) < abs(gains[closest] - target))
+                    closest = i;
+            }
+
+            rtlsdr_set_tuner_gain(RTLSDR.dev, gains[closest]);
             free(gains);
-            return false;
+
+            fprintf(stderr, "rtlsdr: tuner gain set to %.1f dB\n",
+                    rtlsdr_get_tuner_gain(RTLSDR.dev)/10.0);
         }
-
-        int target = (Modes.gain == MODES_MAX_GAIN ? 9999 : Modes.gain);
-        int closest = -1;
-
-        for (int i = 0; i < numgains; ++i) {
-            if (closest == -1 || abs(gains[i] - target) < abs(gains[closest] - target))
-                closest = i;
-        }
-        
-        rtlsdr_set_tuner_gain(RTLSDR.dev, gains[closest]);
-        free(gains);
-
-        fprintf(stderr, "rtlsdr: tuner gain set to %.1f dB\n",
-                rtlsdr_get_tuner_gain(RTLSDR.dev)/10.0);
     }
 
     if (RTLSDR.digital_agc) {
@@ -313,12 +323,10 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     // Compute the sample timestamp and system timestamp for the start of the block
     outbuf->sampleTimestamp = sampleCounter * 12e6 / Modes.sample_rate;
     sampleCounter += slen;
-    block_duration = 1e9 * slen / Modes.sample_rate;
 
     // Get the approx system time for the start of this block
-    clock_gettime(CLOCK_REALTIME, &outbuf->sysTimestamp);
-    outbuf->sysTimestamp.tv_nsec -= block_duration;
-    normalize_timespec(&outbuf->sysTimestamp);
+    block_duration = 1e3 * slen / Modes.sample_rate;
+    outbuf->sysTimestamp = mstime() - block_duration;
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {

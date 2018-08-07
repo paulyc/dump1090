@@ -68,12 +68,12 @@ ifeq ($(BLADERF), yes)
     LDFLAGS += $(shell pkg-config --libs-only-L libbladeRF)
   endif
 
-  ifeq ($(STATIC), yes) 
+  ifeq ($(STATIC), yes)
     LIBS_SDR += -Wl,-Bstatic -lbladeRF
-  else 
-    LIBS_SDR += -lbladeRF 
+  else
+    LIBS_SDR += -lbladeRF
   endif
-endif 
+endif
 
 ifeq ($(UNAME), Linux)
   LIBS+=-lrt
@@ -100,16 +100,16 @@ all: dump1090 view1090 faup1090
 %.o: %.c *.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-lib1090.so.0: anet.o interactive.o mode_ac.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
+lib1090.so.0.0.0: anet.o interactive.o mode_ac.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
 	gcc $(LDFLAGS_SHARED) -o $@ $(LDFLAGS) $(LIBS_SDR) $^
 
-dump1090: dump1090.o lib1090.so.0
+dump1090: dump1090.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-view1090: view1090.o lib1090.so.0
+view1090: view1090.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-faup1090: faup1090.o lib1090.so.0
+faup1090: faup1090.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
 clean:
