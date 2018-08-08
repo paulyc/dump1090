@@ -1,8 +1,8 @@
 PROGNAME=dump1090
 
 RTLSDR ?= yes
-BLADERF ?= yes
-UNAME ?= Linux
+BLADERF ?= no
+UNAME ?= Darwin
 
 ifndef DUMP1090_VERSION
 DUMP1090_VERSION=$(shell git describe --always --tags --match=v*)
@@ -10,14 +10,14 @@ endif
 
 CFLAGS += -DMODES_DUMP1090_VERSION=\"$(DUMP1090_VERSION)\" -DMODES_DUMP1090_VARIANT=\"dump1090-paulyc\"
 CFLAGS += -O2 -g -Wall -Werror -W -Wno-unknown-warning-option -Wno-format-truncation
-CFLAGS += -fPIC -Wl,visibility=default -Wl,export-dynamic
+CFLAGS += -fPIC
 LIBS += -lpthread -lm -lncurses
 LIB_VERSION_MAJOR=0
 LIB_VERSION_MINOR=1
 
 ifdef CROSS_COMPILE
   CFLAGS += --host=$HOST --sysroot=$SYSROOT
-  LDFLAGS += -pie
+  LDFLAGS += -pie -Wl,visibility=default -Wl,export-dynamic
 endif
 
 ifndef CC
@@ -100,16 +100,16 @@ all: dump1090 view1090 faup1090
 %.o: %.c *.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-lib1090.so.0.0.0: anet.o interactive.o mode_ac.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
-	gcc $(LDFLAGS_SHARED) -o $@ $(LDFLAGS) $(LIBS_SDR) $^
+lib1090.so.0.0.0: anet.o interactive.o mode_ac.o net_io.o dump1090.o faup1090.o view1090.o comm_b.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
+	gcc $(LDFLAGS_SHARED) -o $@ $(LDFLAGS) $(LIBS_SDR) $^ $(LIBS)
 
-dump1090: dump1090.o lib1090.so.0.0.0
+dump1090: dump1090-main.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-view1090: view1090.o lib1090.so.0.0.0
+view1090: view1090-main.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
-faup1090: faup1090.o lib1090.so.0.0.0
+faup1090: faup1090-main.o lib1090.so.0.0.0
 	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
 
 clean:
