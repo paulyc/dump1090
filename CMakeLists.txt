@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.7.2)
 
 project(lib1090)
 
@@ -23,23 +23,23 @@ project(lib1090)
 #add_subdirectory(deps)
 
 #for desktop linux with libusb-1.0 installed
-add_library(usb-1.0 SHARED IMPORTED)
-set_target_properties(
-	usb-1.0
+#add_library(usb-1.0 SHARED IMPORTED)
+#set_target_properties(
+#	usb-1.0
 
-	PROPERTIES IMPORTED_LOCATION
+#	PROPERTIES IMPORTED_LOCATION
 
-	/usr/lib/libusb-1.0.so.0
-)
+#	libusb-1.0.so.0
+#)
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11 -fPIC")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
 
 #for linux build
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
 set(COMPAT_SOURCES)
-set(EXTRA_LIBS "-lm -lncurses -lpthread")
+set(EXTRA_LIBS "-lm -lncurses -lpthread -lusb-1.0")
 
 #for darwin build
 #set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
@@ -53,12 +53,12 @@ add_library(
 	
 	anet.c
 	${COMPAT_SOURCES}
+	comm_b.c
 	convert.c
 	cpr.c
 	crc.c
 	demod_2400.c
 	icao_filter.c
-	event_loop.c
 	interactive.c
 	mode_ac.c
 	mode_s.c
@@ -76,20 +76,16 @@ add_library(
 target_link_libraries(
 	1090
 
-	usb-1.0
 	rtlsdr
-	"-Wl,-soname,lib1090.so.0"
+	${EXTRA_LIBS}
 )
 
-set_property(TARGET 1090 PROPERTY SOVERSION 0)
-set_property(TARGET 1090 PROPERTY VERSION 0.0.0)
-
 add_executable(dump1090 dump1090-main.c)
-target_link_libraries(dump1090 1090 ${EXTRA_LIBS})
+target_link_libraries(dump1090 1090)
 add_executable(faup1090 faup1090-main.c)
-target_link_libraries(faup1090 1090 ${EXTRA_LIBS})
+target_link_libraries(faup1090 1090)
 add_executable(view1090 view1090-main.c)
-target_link_libraries(view1090 1090 ${EXTRA_LIBS})
+target_link_libraries(view1090 1090)
 
 INSTALL(
     TARGETS dump1090 faup1090 view1090 1090
