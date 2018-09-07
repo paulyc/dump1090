@@ -20,8 +20,6 @@
 #ifndef DUMP1090_UTIL_H
 #define DUMP1090_UTIL_H
 
-#include <stdint.h>
-
 /* Returns system time in milliseconds */
 uint64_t mstime(void);
 

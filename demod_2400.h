@@ -20,8 +20,6 @@
 #ifndef DUMP1090_DEMOD_2400_H
 #define DUMP1090_DEMOD_2400_H
 
-#include <stdint.h>
-
 struct mag_buf;
 
 void demodulate2400(struct mag_buf *mag);

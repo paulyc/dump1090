@@ -24,18 +24,18 @@ project(lib1090)
 
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
-set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -std=c11")
+set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c)
 
 #for linux build
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror")
 set(COMPAT_SOURCES)
-set(EXTRA_LIBS "-lm -lncurses -pthread -lusb-1.0")
+set(LDFLAGS "-pthread")
 
 #for darwin build
 #set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T)
-#set(EXTRA_LIBS "-lm -lncurses -pthread -lusb-1.0")
+#set(LDFLAGS)
 
 add_library(
 	1090
@@ -68,7 +68,12 @@ target_link_libraries(
 	1090
 
 	rtlsdr
-	${EXTRA_LIBS}
+	bladeRF
+	m
+	ncurses
+	usb-1.0
+
+	${LDFLAGS}
 )
 
 set_target_properties(
@@ -88,4 +93,9 @@ INSTALL(
     TARGETS dump1090 faup1090 view1090 1090
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
+)
+
+INSTALL(
+    FILES lib1090.h
+    DESTINATION include
 )
