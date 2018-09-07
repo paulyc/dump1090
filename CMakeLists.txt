@@ -22,29 +22,20 @@ project(lib1090)
 #for android
 #add_subdirectory(deps)
 
-#for desktop linux with libusb-1.0 installed
-#add_library(usb-1.0 SHARED IMPORTED)
-#set_target_properties(
-#	usb-1.0
-
-#	PROPERTIES IMPORTED_LOCATION
-
-#	libusb-1.0.so.0
-#)
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11 -fPIC")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_RTLSDR -std=c11")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c)
 
 #for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror")
 set(COMPAT_SOURCES)
-set(EXTRA_LIBS "-lm -lncurses -lpthread -lusb-1.0")
+set(EXTRA_LIBS "-lm -lncurses -pthread -lusb-1.0")
 
 #for darwin build
 #set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T)
-#set(EXTRA_LIBS "-lm -lncurses -lpthread")
+#set(EXTRA_LIBS "-lm -lncurses -pthread -lusb-1.0")
 
 add_library(
 	1090
@@ -78,6 +69,12 @@ target_link_libraries(
 
 	rtlsdr
 	${EXTRA_LIBS}
+)
+
+set_target_properties(
+	1090 PROPERTIES
+	VERSION 0.0.0
+	SOVERSION 0
 )
 
 add_executable(dump1090 dump1090-main.c)
