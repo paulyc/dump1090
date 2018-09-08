@@ -50,15 +50,6 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
-// Default version number, if not overriden by the Makefile
-#ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13-custom"
-#endif
-
-#ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
-#endif
-
 // ============================= Include files ==========================
 
 #ifndef _WIN32
@@ -87,6 +78,15 @@
 #include "compat/compat.h"
 
 // ============================= #defines ===============================
+
+// Default version number, if not overriden by the Makefile
+#ifndef MODES_DUMP1090_VERSION
+# define MODES_DUMP1090_VERSION     "v1.13-custom"
+#endif
+
+#ifndef MODES_DUMP1090_VARIANT
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
+#endif
 
 #define HAVE_RTL_BIAST             1
 #define MODES_DEFAULT_PPM          0
@@ -380,6 +380,7 @@ struct {                             // Internal state
     // User details
     double fUserLat;                // Users receiver/antenna lat/lon needed for initial surface location
     double fUserLon;                // Users receiver/antenna lat/lon needed for initial surface location
+    double fUserAltM;               // Users receiver/antenna altitude in meters
     int    bUserFlags;              // Flags relating to the user details
     double maxRange;                // Absolute maximum decoding range, in *metres*
 
@@ -638,10 +639,14 @@ void view1090Init(void);
 
 void modesInitConfig(void);
 void modesInit(void);
+void modesInitStats(void);
 void *readerThreadEntryPoint(void *arg);
 void snipMode(int level);
 void display_total_stats(void);
+void mainLoopNetOnly(void);
+void mainLoopSdr(void);
 void backgroundTasks(void);
+void install_signal_handlers(bool reset);
 
 #ifdef __cplusplus
 }

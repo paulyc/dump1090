@@ -55,6 +55,32 @@
 // ============================= Utility functions ==========================
 //
 
+static bool reset_signal_handlers = true;
+
+static void sigintHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    if (reset_signal_handlers) {
+        signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
+    }
+    Modes.exit = 1;           // Signal to threads that we are done
+    log_with_timestamp("Caught SIGINT, shutting down..\n");
+}
+
+static void sigtermHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    if (reset_signal_handlers) {
+        signal(SIGTERM, SIG_DFL); // reset signal handler - bit extra safety
+    }
+    Modes.exit = 1;           // Signal to threads that we are done
+    log_with_timestamp("Caught SIGTERM, shutting down..\n");
+}
+
+void install_signal_handlers(bool reset) {
+    reset_signal_handlers = reset;
+    signal(SIGINT, sigintHandler);
+    signal(SIGTERM, sigtermHandler);
+}
+
 void log_with_timestamp(const char *format, ...)
 {
     char timebuf[128];
@@ -116,6 +142,24 @@ void modesInitConfig(void) {
 
     sdrInitConfig();
 }
+
+void modesInitStats(void) {
+    Modes.stats_current.start = Modes.stats_current.end =
+        Modes.stats_alltime.start = Modes.stats_alltime.end =
+        Modes.stats_periodic.start = Modes.stats_periodic.end =
+        Modes.stats_5min.start = Modes.stats_5min.end =
+        Modes.stats_15min.start = Modes.stats_15min.end = mstime();
+
+    for (int j = 0; j < 15; ++j)
+        Modes.stats_1min[j].start = Modes.stats_1min[j].end = Modes.stats_current.start;
+
+    // write initial json files so they're not missing
+    writeJsonToFile("receiver.json", generateReceiverJson);
+    writeJsonToFile("stats.json", generateStatsJson);
+    writeJsonToFile("aircraft.json", generateAircraftJson);
+}
+
+
 //
 //=========================================================================
 //
@@ -258,6 +302,103 @@ void display_total_stats(void)
 //
 //=========================================================================
 //
+
+
+void mainLoopNetOnly(void) {
+    while (!Modes.exit) {
+        struct timespec start_time;
+
+        start_cpu_timing(&start_time);
+        backgroundTasks();
+        end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+        usleep(100000);
+    }
+}
+
+void mainLoopSdr(void) {
+    int watchdogCounter = 10; // about 1 second
+
+    // Create the thread that will read the data from the device.
+    pthread_mutex_lock(&Modes.data_mutex);
+    pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
+
+    while (!Modes.exit) {
+        struct timespec start_time;
+
+        if (Modes.first_free_buffer == Modes.first_filled_buffer) {
+            /* wait for more data.
+            * we should be getting data every 50-60ms. wait for max 100ms before we give up and do some background work.
+            * this is fairly aggressive as all our network I/O runs out of the background work!
+            */
+
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 100000000;
+            normalize_timespec(&ts);
+
+            pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts); // This unlocks Modes.data_mutex, and waits for Modes.data_cond
+        }
+
+        // Modes.data_mutex is locked, and possibly we have data.
+
+        // copy out reader CPU time and reset it
+        add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
+        Modes.reader_cpu_accumulator.tv_sec = 0;
+        Modes.reader_cpu_accumulator.tv_nsec = 0;
+
+        if (Modes.first_free_buffer != Modes.first_filled_buffer) {
+            // FIFO is not empty, process one buffer.
+
+            struct mag_buf *buf;
+
+            start_cpu_timing(&start_time);
+            buf = &Modes.mag_buffers[Modes.first_filled_buffer];
+
+            // Process data after releasing the lock, so that the capturing
+            // thread can read data while we perform computationally expensive
+            // stuff at the same time.
+            pthread_mutex_unlock(&Modes.data_mutex);
+
+            demodulate2400(buf);
+            if (Modes.mode_ac) {
+                demodulate2400AC(buf);
+            }
+
+            Modes.stats_current.samples_processed += buf->length;
+            Modes.stats_current.samples_dropped += buf->dropped;
+            end_cpu_timing(&start_time, &Modes.stats_current.demod_cpu);
+
+            // Mark the buffer we just processed as completed.
+            pthread_mutex_lock(&Modes.data_mutex);
+            Modes.first_filled_buffer = (Modes.first_filled_buffer + 1) % MODES_MAG_BUFFERS;
+            pthread_cond_signal(&Modes.data_cond);
+            pthread_mutex_unlock(&Modes.data_mutex);
+            watchdogCounter = 10;
+        } else {
+            // Nothing to process this time around.
+            pthread_mutex_unlock(&Modes.data_mutex);
+            if (--watchdogCounter <= 0) {
+                log_with_timestamp("No data received from the SDR for a long time, it may have wedged");
+                watchdogCounter = 600;
+            }
+        }
+
+        start_cpu_timing(&start_time);
+        backgroundTasks();
+        end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+        pthread_mutex_lock(&Modes.data_mutex);
+    }
+
+    pthread_mutex_unlock(&Modes.data_mutex);
+
+    log_with_timestamp("Waiting for receive thread termination");
+    pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
+    pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup - only after the reader thread is dead!
+    pthread_mutex_destroy(&Modes.data_mutex);
+}
+
 // This function is called a few times every second by main in order to
 // perform tasks we need to do continuously, like accepting new clients
 // from the net, refreshing the screen in interactive mode, and so forth
