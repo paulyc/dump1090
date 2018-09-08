@@ -2,7 +2,10 @@
 //
 // faup1090.c: cut down version that just does 30005 -> stdout forwarding
 //
-// Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+// Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2017 FlightAware LLC
+// Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 // This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
@@ -16,11 +19,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//   Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+//   Copyright (c) 2017 FlightAware LLC
+//   Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 //   All rights reserved.
 //
