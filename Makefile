@@ -2,7 +2,7 @@ PROGNAME=dump1090
 
 RTLSDR ?= yes
 BLADERF ?= no
-UNAME ?= Darwin
+UNAME ?= Linux
 
 ifndef DUMP1090_VERSION
 DUMP1090_VERSION=$(shell git describe --always --tags --match=v*)
@@ -11,9 +11,11 @@ endif
 CFLAGS += -DMODES_DUMP1090_VERSION=\"$(DUMP1090_VERSION)\" -DMODES_DUMP1090_VARIANT=\"dump1090-paulyc\"
 CFLAGS += -O2 -g -Wall -Werror -W -Wno-unknown-warning-option -Wno-format-truncation
 CFLAGS += -fPIC
-LIBS += -lpthread -lm -lncurses
+LIBS += -pthread -lm -lncurses -lrtlsdr
 LIB_VERSION_MAJOR=0
 LIB_VERSION_MINOR=1
+LIBNAME=lib1090.so.0.1.0
+SONAME=lib1090.so.0
 
 ifdef CROSS_COMPILE
   CFLAGS += --host=$HOST --sysroot=$SYSROOT
@@ -79,7 +81,7 @@ ifeq ($(UNAME), Linux)
   LIBS+=-lrt
   CFLAGS+=-std=c11 -D_DEFAULT_SOURCE
   LIB_EXT=so
-  LDFLAGS_SHARED += -shared -Wl,-soname,lib1090.so.0
+  LDFLAGS_SHARED += -shared -Wl,-soname,$(SONAME)
 endif
 ifeq ($(UNAME), Darwin)
   UNAME_R := $(shell uname -r)
@@ -95,25 +97,27 @@ ifeq ($(UNAME), Darwin)
   LDFLAGS_SHARED += -dynamiclib -current_version 0.1 -compatibility_version 0.1
 endif
 
-all: dump1090 view1090 faup1090
+all: lib1090.so dump1090 view1090 faup1090
 
 %.o: %.c *.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-lib1090.so.0.0.0: anet.o interactive.o mode_ac.o net_io.o dump1090.o faup1090.o view1090.o comm_b.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
-	gcc $(LDFLAGS_SHARED) -o $@ $(LDFLAGS) $(LIBS_SDR) $^ $(LIBS)
+lib1090.so: anet.o interactive.o mode_ac.o net_io.o dump1090.o faup1090.o view1090.o comm_b.o mode_s.o net_io.o crc.o demod_2400.o stats.o cpr.o icao_filter.o track.o util.o convert.o sdr_ifile.o sdr.o $(SDR_OBJ) $(COMPAT)
+	gcc $(LDFLAGS_SHARED) -o $(LIBNAME) $(LDFLAGS) $(LIBS_SDR) $^ $(LIBS)
+	ln -s $(LIBNAME) $(SONAME)
+	ln -s $(LIBNAME) $@
 
-dump1090: dump1090-main.o lib1090.so.0.0.0
-	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
+dump1090: dump1090-main.o lib1090.so
+	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBNAME) $(LIBS) $(LIBS_SDR)
 
-view1090: view1090-main.o lib1090.so.0.0.0
-	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
+view1090: view1090-main.o lib1090.so
+	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBNAME) $(LIBS) $(LIBS_SDR)
 
-faup1090: faup1090-main.o lib1090.so.0.0.0
-	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBS) $(LIBS_SDR)
+faup1090: faup1090-main.o lib1090.so
+	$(CC) -g -o $@ $^ $(LDFLAGS) $(LIBNAME) $(LIBS) $(LIBS_SDR)
 
 clean:
-	rm -f *.o compat/clock_gettime/*.o compat/clock_nanosleep/*.o dump1090 view1090 faup1090 cprtests crctests convert_benchmark lib1090.*
+	rm -f *.o compat/clock_gettime/*.o compat/clock_nanosleep/*.o dump1090 view1090 faup1090 cprtests crctests convert_benchmark lib1090.so.*
 
 test: cprtests
 	./cprtests

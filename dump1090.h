@@ -50,6 +50,17 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
+#define ALLOW_AGGRESSIVE 1
+
+// Default version number, if not overriden by the Makefile
+#ifndef MODES_DUMP1090_VERSION
+# define MODES_DUMP1090_VERSION     "v1.13.1-custom"
+#endif
+
+#ifndef MODES_DUMP1090_VARIANT
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
+#endif
+
 // ============================= Include files ==========================
 
 #ifndef _WIN32
