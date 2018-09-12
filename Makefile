@@ -2,7 +2,7 @@ PROGNAME=dump1090
 
 RTLSDR ?= yes
 BLADERF ?= no
-UNAME ?= Darwin
+UNAME ?= Linux
 
 ifndef DUMP1090_VERSION
 DUMP1090_VERSION=$(shell git describe --always --tags --match=v*)
