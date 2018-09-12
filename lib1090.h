@@ -176,15 +176,6 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp);
 
 // ============================= #defines ===============================
 
-// Default version number, if not overriden by the Makefile
-#ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13-custom"
-#endif
-
-#ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
-#endif
-
 #define HAVE_RTL_BIAST             1
 #define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
