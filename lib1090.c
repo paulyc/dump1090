@@ -90,6 +90,12 @@ int lib1090Init(float userLat, float userLon, float userAltMeters) {
     return doInitOnce();
 }
 
+int lib1090Uninit() {
+    int status = lib1090JoinThread(NULL);
+    // TODO call the destroy routines from rest of library...
+    return status;
+}
+
 static void lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
     while (Modes.exit == 0) {
@@ -186,12 +192,25 @@ int lib1090RunThread(void *udata) {
 }
 
 int lib1090JoinThread(void **retptr) {
+    // thread already joined or never created
+    if (lib1090Config.libThread == 0) {
+        return -EINVAL;
+    }
     void *dummy;
     if (retptr == NULL) {
         retptr = &dummy;
     }
+    int status = pthread_mutex_lock(&Modes.data_mutex);
+    if (status != 0) {
+        return status;
+    }
     Modes.exit = 1;
-    int status = pthread_join(lib1090Config.libThread, retptr);
+    status = pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    if (status != 0) {
+        return status;
+    }
+    status = pthread_join(lib1090Config.libThread, retptr);
     if (status == 0) {
         lib1090Config.libThread = 0;
     }
