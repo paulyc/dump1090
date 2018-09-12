@@ -2146,8 +2146,8 @@ static void writeFATSV()
             (squawkValid && a->squawk != a->fatsv_emitted_squawk) ||
             (trackDataValid(&a->emergency_valid) && a->emergency != a->fatsv_emitted_emergency);
 
-        uint64_t minAge;
-        if (immediate) {
+        uint64_t minAge = 1000;
+        if (immediate || changed) {
             // a change we want to emit right away
             minAge = 0;
         } else if (!positionValid) {
@@ -2160,10 +2160,10 @@ static void writeFATSV()
             minAge = 1000;
         } else if (!altValid || a->altitude_baro < 10000) {
             // Below 10000 feet, emit up to every 5s when changing, 10s otherwise
-            minAge = (changed ? 5000 : 10000);
+            //minAge = (changed ? 5000 : 10000);
         } else {
             // Above 10000 feet, emit up to every 10s when changing, 30s otherwise
-            minAge = (changed ? 10000 : 30000);
+            //minAge = (changed ? 10000 : 30000);
         }
 
         if ((now - a->fatsv_last_emitted) < minAge)
