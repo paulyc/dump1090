@@ -59,6 +59,17 @@
 
 #define __DUMP1090_H
 
+#define ALLOW_AGGRESSIVE 1
+
+// Default version number, if not overriden by the Makefile
+#ifndef MODES_DUMP1090_VERSION
+# define MODES_DUMP1090_VERSION     "v1.13.1-custom"
+#endif
+
+#ifndef MODES_DUMP1090_VARIANT
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
+#endif
+
 // ============================= Include files ==========================
 
 #ifndef _WIN32
@@ -1354,15 +1365,15 @@ void mainLoopSdr(void);
 void backgroundTasks(void);
 void install_signal_handlers(bool reset);
 
-#ifdef __cplusplus
-}
-#endif
-
 // from lib1090.c
 int lib1090Init(float userLat, float userLon, float userAltMeters);
 int lib1090Uninit();
 int lib1090RunThread(void *udata);
 int lib1090JoinThread(void **retptr);
 int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // DUMP1090_LIB1090_H
