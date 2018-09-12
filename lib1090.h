@@ -1359,7 +1359,9 @@ void install_signal_handlers(bool reset);
 #endif
 
 // from lib1090.c
-void lib1090Init(float userLat, float userLon, float userAltMeters);
-void lib1090Run();
+int lib1090Init(float userLat, float userLon, float userAltMeters);
+int lib1090RunThread(void *udata);
+int lib1090JoinThread(void **retptr);
+int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
 
 #endif // DUMP1090_LIB1090_H
