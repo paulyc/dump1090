@@ -79,7 +79,7 @@ static void __lib1090Init() {
     modesInitStats();
 }
 
-int doInitOnce() {
+static int doInitOnce() {
     return pthread_once(&lib1090Config.initOnce, __lib1090Init);
 }
 
@@ -175,6 +175,9 @@ static void* __lib1090RunThread(void* pparam) {
     return NULL;
 }
 
+// Thinking this thread is probably not necessary if we're being provided
+// our mode-s frames from an external demodulator....
+//
 // will return -EBUSY if the thread is already running
 // ( <0 indicating it was an error returned by ME and not the pthread library)
 int lib1090RunThread(void *udata) {
