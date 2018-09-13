@@ -96,6 +96,7 @@ int lib1090Uninit() {
     return status;
 }
 
+#if 0
 static void lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
     while (Modes.exit == 0) {
@@ -109,6 +110,7 @@ static void lib1090MainLoop() {
     }
     pthread_mutex_unlock(&Modes.data_mutex);
 }
+#endif //0
 
 int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp) {
     memset(mm, '\0', sizeof(struct modesMessage));
@@ -171,13 +173,11 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
 }
 
 static void* __lib1090RunThread(void* pparam) {
-    lib1090MainLoop();
+    //lib1090MainLoop();
+    mainLoopNetOnly();
     return NULL;
 }
 
-// Thinking this thread is probably not necessary if we're being provided
-// our mode-s frames from an external demodulator....
-//
 // will return -EBUSY if the thread is already running
 // ( <0 indicating it was an error returned by ME and not the pthread library)
 int lib1090RunThread(void *udata) {
