@@ -63,20 +63,40 @@ static struct {
     pthread_t libThread;
 } lib1090Config = { 0.0f, 0.0f, 0.0f, PTHREAD_ONCE_INIT, 0 };
 
+static void signalHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    lib1090Uninit();
+}
+
 static void __lib1090Init() {
     modesInitConfig();
-    install_signal_handlers(false);
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
 
+
+    Modes.net = 1;
     Modes.sdr_type = SDR_NONE;
     Modes.fUserLat = lib1090Config.userLat;
     Modes.fUserLon = lib1090Config.userLon;
     Modes.fUserAltM = lib1090Config.userAltMeters;
     Modes.json_dir = "/var/cache/piaware";
     Modes.mode_ac = 1;
+    Modes.mode_ac_auto = 0;
+    Modes.dc_filter = 1;
+    Modes.check_crc = 1;
+    Modes.nfix_crc = MODES_MAX_BITERRORS;
+    Modes.net_output_raw_ports = NULL;
+    Modes.net_output_sbs_ports = NULL;
+    Modes.net_input_raw_ports = NULL;
+    Modes.net_input_beast_ports = NULL;
+    Modes.net_verbatim = 1;
+    Modes.exit = 0;
 
     modesInit();
     modesInitNet();
     modesInitStats();
+
+
 }
 
 static int doInitOnce() {
@@ -118,10 +138,12 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
     // For consistency with how the Beast / Radarcape does it,
     // we report the timestamp at the end of bit 56 (even if
     // the frame is a 112-bit frame)
-    mm->timestampMsg = timestamp; // + j*5 + (8 + 56) * 12 + bestphase; /// these magic numbers//// 12 because of 12MHz... i dunno wtf
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    mm->timestampMsg = tp.tv_nsec; // + j*5 + (8 + 56) * 12 + bestphase; /// these magic numbers//// 12 because of 12MHz... i dunno wtf
 
     // compute message receive time as block-start-time + difference in the 12MHz clock
-    mm->sysTimestampMsg = timestamp; // + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg); // idk
+    mm->sysTimestampMsg = mm->timestampMsg; // + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg); // idk
 
     //mm.score = bestscore;
 
