@@ -51,6 +51,7 @@ add_library(
 	demod_2400.c
 	icao_filter.c
 	interactive.c
+	lib1090.c
 	mode_ac.c
 	mode_s.c
 	net_io.c
@@ -78,7 +79,7 @@ target_link_libraries(
 
 set_target_properties(
 	1090 PROPERTIES
-	VERSION 0.0.0
+	VERSION 0.1.0
 	SOVERSION 0
 )
 

@@ -571,7 +571,7 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
 
     // Fields 7 & 8 are the message reception time and date
     p += sprintf(p, "%04d/%02d/%02d,", (stTime_receive.tm_year+1900),(stTime_receive.tm_mon+1), stTime_receive.tm_mday);
-    p += sprintf(p, "%02d:%02d:%02d.%03u,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, (unsigned) (mm->sysTimestampMsg / 1000));
+    p += sprintf(p, "%02d:%02d:%02d.%03u,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, (unsigned) (mm->sysTimestampMsg % 1000));
 
     // Fields 9 & 10 are the current time and date
     p += sprintf(p, "%04d/%02d/%02d,", (stTime_now.tm_year+1900),(stTime_now.tm_mon+1), stTime_now.tm_mday);
@@ -723,19 +723,19 @@ static void send_sbs_heartbeat(struct net_service *service)
 void modesQueueOutput(struct modesMessage *mm, struct aircraft *a) {
     int is_mlat = (mm->source == SOURCE_MLAT);
 
-    if (a && !is_mlat && mm->correctedbits < 2) {
+    if (a && !is_mlat && (true || mm->correctedbits < 2)) {
         // Don't ever forward 2-bit-corrected messages via SBS output.
         // Don't ever forward mlat messages via SBS output.
         modesSendSBSOutput(mm, a);
     }
 
-    if (!is_mlat && (Modes.net_verbatim || mm->correctedbits < 2)) {
+    if (!is_mlat && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
         // Forward 2-bit-corrected messages via raw output only if --net-verbatim is set
         // Don't ever forward mlat messages via raw output.
         modesSendRawOutput(mm);
     }
 
-    if ((!is_mlat || Modes.forward_mlat) && (Modes.net_verbatim || mm->correctedbits < 2)) {
+    if ((!is_mlat || Modes.forward_mlat) && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
         // Forward 2-bit-corrected messages via beast output only if --net-verbatim is set
         // Forward mlat messages via beast output only if --forward-mlat is set
         modesSendBeastOutput(mm);

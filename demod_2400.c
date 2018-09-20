@@ -66,10 +66,10 @@ void demodulate2400(struct mag_buf *mag)
 {
     static struct modesMessage zeroMessage;
     struct modesMessage mm;
-    unsigned char msg1[MODES_LONG_MSG_BYTES], msg2[MODES_LONG_MSG_BYTES], *msg;
+    uint8_t msg1[MODES_LONG_MSG_BYTES], msg2[MODES_LONG_MSG_BYTES], *msg;
     uint32_t j;
 
-    unsigned char *bestmsg;
+    uint8_t *bestmsg;
     int bestscore, bestphase;
 
     uint16_t *m = mag->data;
@@ -372,7 +372,6 @@ void demodulate2400(struct mag_buf *mag)
         Modes.stats_current.noise_power_count += mag->length;
     }
 }
-
 
 #ifdef MODEAC_DEBUG
 
