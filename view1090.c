@@ -1,8 +1,10 @@
+// view1090, a Mode S messages viewer for dump1090 devices.
 // Part of dump1090, a Mode S message decoder for RTLSDR devices.
 //
 // view1090.c: functions mainly used by view1090 executable
 //
 // Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+// Copyright (C) 2014 by Malcolm Robb <Support@ATTAvionics.com>
 // Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 // Copyright (c) 2017 FlightAware LLC
 // Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
@@ -23,6 +25,7 @@
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//   Copyright (C) 2014 by Malcolm Robb <Support@ATTAvionics.com>
 //   Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 //   Copyright (c) 2017 FlightAware LLC
 //   Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>

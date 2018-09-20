@@ -17,3 +17,5 @@ faup1090
 package-wheezy
 .DS_Store
 .directory
+xcodebuild
+.idea
