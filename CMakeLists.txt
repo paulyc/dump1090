@@ -19,23 +19,29 @@ cmake_minimum_required(VERSION 3.7.2)
 
 project(lib1090)
 
-#for android
-#add_subdirectory(deps)
-
 include_directories( /usr/include/libusb-1.0 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -std=c11")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -std=c11 -Wall -Werror")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c)
 
-#for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror")
-set(COMPAT_SOURCES)
-set(LDFLAGS "-pthread")
-
-#for darwin build
-#set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T)
-#set(LDFLAGS)
+if(APPLE)
+  #for darwin build
+  set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T")
+  set(LDFLAGS "-pthread")
+elseif(UNIX)
+  #for linux build
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE")
+  set(COMPAT_SOURCES)
+  set(LDFLAGS "-pthread")
+#elseif(ANDROID)  ?? is this a thing?
+#  add_subdirectory(deps)
+else()
+  #for ?? build (probably broken)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror")
+  set(COMPAT_SOURCES)
+  set(LDFLAGS "${LDFLAGS}")
+endif()
 
 add_library(
 	1090
