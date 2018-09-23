@@ -89,14 +89,13 @@ static void __lib1090Init() {
     Modes.net_output_sbs_ports = NULL;
     Modes.net_input_raw_ports = NULL;
     Modes.net_input_beast_ports = NULL;
-    Modes.net_verbatim = 1;
-    Modes.exit = 0;
+    Modes.net_verbatim = 0;
 
     modesInit();
     modesInitNet();
     modesInitStats();
 
-
+    Modes.exit = 0;
 }
 
 static int doInitOnce() {
@@ -112,25 +111,38 @@ int lib1090Init(float userLat, float userLon, float userAltMeters) {
 
 int lib1090Uninit() {
     int status = lib1090JoinThread(NULL);
-    // TODO call the destroy routines from rest of library...
+    pthread_cond_destroy(&Modes.data_cond);
+    pthread_mutex_destroy(&Modes.data_mutex);
     return status;
 }
 
-#if 0
 static void lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
-    while (Modes.exit == 0) {
-        struct timespec ts;
+
+    while (!Modes.exit) {
+        struct timespec start_time, ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_nsec += 100000000;
         normalize_timespec(&ts);
 
         pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts);
 
+        // copy out reader CPU time and reset it
+        //add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
+        //Modes.reader_cpu_accumulator.tv_sec = 0;
+        //Modes.reader_cpu_accumulator.tv_nsec = 0;
+
+        pthread_mutex_unlock(&Modes.data_mutex);
+
+        start_cpu_timing(&start_time);
+        backgroundTasks();
+        end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+        pthread_mutex_lock(&Modes.data_mutex);
     }
+
     pthread_mutex_unlock(&Modes.data_mutex);
 }
-#endif //0
 
 int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp) {
     memset(mm, '\0', sizeof(struct modesMessage));
@@ -195,8 +207,7 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
 }
 
 static void* __lib1090RunThread(void* pparam) {
-    //lib1090MainLoop();
-    mainLoopNetOnly();
+    lib1090MainLoop();
     return NULL;
 }
 
@@ -225,17 +236,11 @@ int lib1090JoinThread(void **retptr) {
     if (retptr == NULL) {
         retptr = &dummy;
     }
-    int status = pthread_mutex_lock(&Modes.data_mutex);
-    if (status != 0) {
-        return status;
-    }
+    pthread_mutex_lock(&Modes.data_mutex);
     Modes.exit = 1;
-    status = pthread_cond_signal(&Modes.data_cond);
+    pthread_cond_signal(&Modes.data_cond);
     pthread_mutex_unlock(&Modes.data_mutex);
-    if (status != 0) {
-        return status;
-    }
-    status = pthread_join(lib1090Config.libThread, retptr);
+    int status = pthread_join(lib1090Config.libThread, retptr);
     if (status == 0) {
         lib1090Config.libThread = 0;
     }
