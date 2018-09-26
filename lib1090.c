@@ -54,6 +54,7 @@
 
 #include "lib1090.h"
 #include <pthread.h>
+#include <math.h>
 
 static struct {
     float userLat;
@@ -116,6 +117,7 @@ int lib1090Uninit() {
     return status;
 }
 
+#if 0
 static void lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
 
@@ -143,6 +145,7 @@ static void lib1090MainLoop() {
 
     pthread_mutex_unlock(&Modes.data_mutex);
 }
+#endif
 
 int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp) {
     memset(mm, '\0', sizeof(struct modesMessage));
@@ -155,7 +158,7 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
     mm->timestampMsg = tp.tv_nsec; // + j*5 + (8 + 56) * 12 + bestphase; /// these magic numbers//// 12 because of 12MHz... i dunno wtf
 
     // compute message receive time as block-start-time + difference in the 12MHz clock
-    mm->sysTimestampMsg = mm->timestampMsg; // + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg); // idk
+    mm->sysTimestampMsg = timestamp; //mm->timestampMsg; // + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg); // idk
 
     //mm.score = bestscore;
 
@@ -176,8 +179,8 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
         }
     }
 
-    /*
-        * // measure signal power
+#if 0
+         // measure signal power
     {
         double signal_power;
         uint64_t scaled_signal_power = 0;
@@ -199,15 +202,39 @@ int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp
             Modes.stats_current.peak_signal_power = mm.signalLevel;
         if (mm.signalLevel > 0.50119)
             Modes.stats_current.strong_signal_count++; // signal power above -3dBFS
-    } */
+    }
+#endif
+
+    mm->signalLevel = M_SQRT1_2;
 
     // Pass data to the next layer
-    useModesMessage(mm);
+    //useModesMessage(mm);
+
+    // displayModesMessage(mm);
+
+    struct aircraft *a = trackUpdateFromMessage(mm);
+    if (a == NULL) {
+        fprintf(stderr, "trackUpdateFromMessage returned NULL aircraft\n");
+        return -EPROTO;
+    }
+    uint8_t beastMsg[256];
+    const ssize_t msgLen = formatBeastMessage(mm, beastMsg, sizeof(beastMsg));
+    if (msgLen <= 0) {
+        fprintf(stderr, "formatBeastMessage returned error %zd\n", msgLen);
+        return msgLen;
+    } else {
+        size_t written = fwrite(beastMsg, sizeof(uint8_t), msgLen, stdout);
+        if (written != msgLen) {
+            fprintf(stderr, "fwrite returned error %d while writing beast message to standard output\n", errno);
+            return errno;
+        }
+    }
+
     return 0;
 }
 
 static void* __lib1090RunThread(void* pparam) {
-    lib1090MainLoop();
+    //lib1090MainLoop();
     return NULL;
 }
 
@@ -246,3 +273,20 @@ int lib1090JoinThread(void **retptr) {
     }
     return status;
 }
+
+#if 0
+int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut) { // check crc, fix if possible
+    uint32_t syndrome = modesChecksum(frameIn, int bitlen);
+    struct errorinfo * info = modesChecksumDiagnose(syndrome, int bitlen);
+    modesChecksumFix(uint8_t *msg, struct errorinfo *info);
+    return 0;
+}
+
+int lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame) {
+    return 0;
+}
+
+int lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, int beastBufferLen) {
+    return 0;
+}
+#endif

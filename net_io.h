@@ -20,6 +20,13 @@
 #ifndef DUMP1090_NETIO_H
 #define DUMP1090_NETIO_H
 
+/* for PRIX64 */
+#include <inttypes.h>
+
+#include <assert.h>
+#include <stdarg.h>
+#include <errno.h>
+
 // Describes a networking service (group of connections)
 
 struct aircraft;
@@ -95,5 +102,7 @@ char *generateStatsJson(const char *url_path, int *len);
 char *generateReceiverJson(const char *url_path, int *len);
 char *generateHistoryJson(const char *url_path, int *len);
 void writeJsonToFile(const char *file, char * (*generator) (const char *,int*));
+
+ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t beastMsgLen);
 
 #endif

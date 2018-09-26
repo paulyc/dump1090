@@ -480,6 +480,8 @@ char *generateReceiverJson(const char *url_path, int *len);
 char *generateHistoryJson(const char *url_path, int *len);
 void writeJsonToFile(const char *file, char * (*generator) (const char *,int*));
 
+ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t beastMsgLen);
+
 #define DUMP1090_CRC_H
 
 // Global max for fixable bit erros
@@ -1362,6 +1364,11 @@ int lib1090Uninit();
 int lib1090RunThread(void *udata);
 int lib1090JoinThread(void **retptr);
 int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
+#if 0
+int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut); // check crc, fix if possible
+int lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame);
+int lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, int beastBufferLen);
+#endif
 
 #ifdef __cplusplus
 }
