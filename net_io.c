@@ -74,7 +74,7 @@ static void send_sbs_heartbeat(struct net_service *service);
 static void writeFATSVEvent(struct modesMessage *mm, struct aircraft *a);
 static void writeFATSVPositionUpdate(float lat, float lon, float alt);
 
-static void autoset_modeac();
+static void autoset_modeac(void);
 
 //
 //=========================================================================
@@ -321,9 +321,9 @@ static void flushWrites(struct net_writer *writer) {
             continue;
         if (c->service == writer->service) {
 #ifndef _WIN32
-            int nwritten = write(c->fd, writer->data, writer->dataUsed);
+            size_t nwritten = write(c->fd, writer->data, writer->dataUsed);
 #else
-            int nwritten = send(c->fd, writer->data, writer->dataUsed, 0 );
+            size_t nwritten = send(c->fd, writer->data, writer->dataUsed, 0 );
 #endif
             if (nwritten != writer->dataUsed) {
                 modesCloseClient(c);
@@ -367,7 +367,6 @@ static void completeWrite(struct net_writer *writer, void *endptr) {
 }
 
 const uint8_t BEAST_MSG_DELIMITER = 0x1a;
-const size_t MAX_BEAST_MSG_LEN = 1+(6+1+14)*2;
 
 ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t beastMsgLen) {
     if (mm == NULL || beastMsgOut == NULL || beastMsgLen < MAX_BEAST_MSG_LEN) {
@@ -424,7 +423,7 @@ ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t
         }
     }
 
-    const ssize_t bytesWritten = beastMsgOut - beastMsgStart;
+    const size_t bytesWritten = beastMsgOut - beastMsgStart;
     assert(bytesWritten <= MAX_BEAST_MSG_LEN);
 
     return bytesWritten;

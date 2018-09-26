@@ -63,7 +63,7 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13.2-paulyc"
+# define MODES_DUMP1090_VERSION     "v1.13.3-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
@@ -404,6 +404,8 @@ int anetSetSendBuffer(char *err, int fd, int buffsize);
 
 #define DUMP1090_NETIO_H
 
+static const size_t MAX_BEAST_MSG_LEN = 1+(6+1+14)*2;
+
 // Describes a networking service (group of connections)
 
 struct aircraft;
@@ -450,7 +452,7 @@ struct client {
 struct net_writer {
     struct net_service *service; // owning service
     void *data;          // shared write buffer, sized MODES_OUT_BUF_SIZE
-    int dataUsed;        // number of bytes of write buffer currently used
+    size_t dataUsed;        // number of bytes of write buffer currently used
     uint64_t lastWrite;  // time of last write to clients
     heartbeat_fn send_heartbeat; // function that queues a heartbeat if needed
 };
@@ -675,7 +677,7 @@ struct mag_buf {
 };
 
 // Program global state
-struct {                             // Internal state
+struct modes_t {                             // Internal state
     pthread_t       reader_thread;
 
     pthread_mutex_t data_mutex;      // Mutex to synchronize buffer access
@@ -729,7 +731,7 @@ struct {                             // Internal state
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
     uint64_t net_heartbeat_interval; // TCP heartbeat interval (milliseconds)
-    int   net_output_flush_size;     // Minimum Size of output data
+    size_t   net_output_flush_size;     // Minimum Size of output data
     uint64_t net_output_flush_interval; // Maximum interval (in milliseconds) between outputwrites
     char *net_output_raw_ports;      // List of raw output TCP ports
     char *net_input_raw_ports;       // List of raw input TCP ports
@@ -1359,16 +1361,28 @@ void backgroundTasks(void);
 void install_signal_handlers(bool reset);
 
 // from lib1090.c
+static const double _3dBFS = 0.501187234; //pow(10.0, -3.0/10.0);
+
+struct lib1090Config_t {
+    float userLat;
+    float userLon;
+    float userAltMeters;
+    pthread_once_t initOnce;
+    pthread_t libThread;
+    int pipedes[2];
+    const char *beastOutPipeName;
+    int pipefd;
+    pid_t childPid;
+};
 int lib1090Init(float userLat, float userLon, float userAltMeters);
 int lib1090Uninit();
 int lib1090RunThread(void *udata);
 int lib1090JoinThread(void **retptr);
-int lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
-#if 0
+ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
 int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut); // check crc, fix if possible
-int lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame);
-int lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, int beastBufferLen);
-#endif
+ssize_t lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame, uint64_t timestamp, double signalLevel);
+ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, size_t beastBufferLen, bool writeToPipe);
+void lib1090GetModes(struct modes_t** modesOut, struct lib1090Config_t **lib1090ConfigOut);
 
 #ifdef __cplusplus
 }

@@ -54,7 +54,7 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13.2-paulyc"
+# define MODES_DUMP1090_VERSION     "v1.13.3-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
@@ -303,7 +303,7 @@ struct mag_buf {
 };
 
 // Program global state
-struct {                             // Internal state
+struct modes_t {                             // Internal state
     pthread_t       reader_thread;
 
     pthread_mutex_t data_mutex;      // Mutex to synchronize buffer access
@@ -357,7 +357,7 @@ struct {                             // Internal state
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
     uint64_t net_heartbeat_interval; // TCP heartbeat interval (milliseconds)
-    int   net_output_flush_size;     // Minimum Size of output data
+    size_t   net_output_flush_size;     // Minimum Size of output data
     uint64_t net_output_flush_interval; // Maximum interval (in milliseconds) between outputwrites
     char *net_output_raw_ports;      // List of raw output TCP ports
     char *net_input_raw_ports;       // List of raw input TCP ports
