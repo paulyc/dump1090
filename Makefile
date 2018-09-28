@@ -86,12 +86,12 @@ endif
 ifeq ($(UNAME), Darwin)
   UNAME_R := $(shell uname -r)
   ifeq ($(shell expr "$(UNAME_R)" : '1[012345]\.'),3)
-    CFLAGS+=-std=c11 -DMISSING_GETTIME -DMISSING_NANOSLEEP
+    CFLAGS+=-std=c11 -DMISSING_GETTIME -DMISSING_NANOSLEEP -DCLOCKID_T
     COMPAT+=compat/clock_gettime/clock_gettime.o compat/clock_nanosleep/clock_nanosleep.o
   else
   # Darwin 16 (OS X 10.12) supplies clock_gettime() and clockid_t
-    CFLAGS+=-std=c11 -DMISSING_NANOSLEEP -DCLOCKID_T
-    COMPAT+=compat/clock_nanosleep/clock_nanosleep.o
+    CFLAGS+=-std=c11 -DMISSING_GETTIME -DMISSING_NANOSLEEP -DCLOCKID_T
+    COMPAT+=compat/clock_gettime/clock_gettime.o compat/clock_nanosleep/clock_nanosleep.o
   endif
   LIB_EXT=dylib
   LDFLAGS_SHARED += -dynamiclib -current_version 0.1 -compatibility_version 0.1

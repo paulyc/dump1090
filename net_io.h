@@ -27,6 +27,8 @@
 #include <stdarg.h>
 #include <errno.h>
 
+static const size_t MAX_BEAST_MSG_LEN = 1+(6+1+14)*2;
+
 // Describes a networking service (group of connections)
 
 struct aircraft;
@@ -73,7 +75,7 @@ struct client {
 struct net_writer {
     struct net_service *service; // owning service
     void *data;          // shared write buffer, sized MODES_OUT_BUF_SIZE
-    int dataUsed;        // number of bytes of write buffer currently used
+    size_t dataUsed;        // number of bytes of write buffer currently used
     uint64_t lastWrite;  // time of last write to clients
     heartbeat_fn send_heartbeat; // function that queues a heartbeat if needed
 };
