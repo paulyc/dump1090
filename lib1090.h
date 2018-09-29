@@ -1367,22 +1367,30 @@ struct lib1090Config_t {
     float userLat;
     float userLon;
     float userAltMeters;
-    pthread_once_t initOnce;
     pthread_t libThread;
     int pipedes[2];
     const char *beastOutPipeName;
     int pipefd;
     pid_t childPid;
+    int sample_rate;
 };
-int lib1090Init(float userLat, float userLon, float userAltMeters);
+
+void lib1090GetConfig(struct lib1090Config_t **configOut);
+void lib1090GetModes(struct modes_t** modesOut);
+
+int lib1090Init();
 int lib1090Uninit();
+
 int lib1090RunThread(void *udata);
 int lib1090JoinThread(void **retptr);
+
 ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp);
 int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut); // check crc, fix if possible
 ssize_t lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame, uint64_t timestamp, double signalLevel);
 ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, size_t beastBufferLen, bool writeToPipe);
-void lib1090GetModes(struct modes_t** modesOut, struct lib1090Config_t **lib1090ConfigOut);
+
+int lib1090ForkDump1090(int sample_pipe_fd);
+int lib1090ReapDump1090();
 
 #ifdef __cplusplus
 }

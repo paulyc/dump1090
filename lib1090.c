@@ -55,22 +55,32 @@
 #include "lib1090.h"
 #include <pthread.h>
 #include <math.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 static struct lib1090Config_t lib1090Config = {
-    0.0f, 0.0f, 0.0f,
-    PTHREAD_ONCE_INIT, 0,
-    { 0, 0 }, "/tmp/lib1090BeastOutput", 0, 0
+    0.0f, 0.0f, 0.0f, 0, { 0, 0 }, NULL, 0, 0
 };
+
+void lib1090GetConfig(struct lib1090Config_t **configOut) {
+    if (configOut != NULL) {
+        *configOut = &lib1090Config;
+    }
+}
+
+void lib1090GetModes(struct modes_t** modesOut) {
+    if (modesOut != NULL) {
+        *modesOut = &Modes;
+    }
+}
 
 static void signalHandler(int dummy) {
     MODES_NOTUSED(dummy);
     lib1090Uninit();
 }
 
-static void __lib1090Init() {
+static int __lib1090InitThread() {
     modesInitConfig();
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
 
     Modes.net = 1;
     Modes.sdr_type = SDR_NONE;
@@ -95,51 +105,39 @@ static void __lib1090Init() {
     modesInitNet();
     modesInitStats();
 
-    Modes.exit = 0;
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
 
-    int err = pipe(lib1090Config.pipedes);
-    if (err != 0) {
-        switch (err) {
-            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
-            case EMFILE:
-            // The number of simultaneously open files in the system would exceed a system-imposed limit.
-            case ENFILE:
-            default:
-                break;
+    if (lib1090Config.beastOutPipeName != NULL) {
+        unlink(lib1090Config.beastOutPipeName);
+        int err = mkfifo(lib1090Config.beastOutPipeName, 0666);
+        if (err != 0) {
+            return err;
         }
+        lib1090Config.pipefd = open(lib1090Config.beastOutPipeName, O_WRONLY);
     }
-
-    unlink(lib1090Config.beastOutPipeName);
-    err = mkfifo(lib1090Config.beastOutPipeName, 0666);
-    if (err != 0) {
-        //return errno;
-    }
-
-    lib1090Config.pipefd = open(lib1090Config.beastOutPipeName, O_WRONLY);
+    return 0;
 }
 
-static int doInitOnce() {
-    return pthread_once(&lib1090Config.initOnce, __lib1090Init);
-}
-
-int lib1090Init(float userLat, float userLon, float userAltMeters) {
-    lib1090Config.userLat = userLat;
-    lib1090Config.userLon = userLon;
-    lib1090Config.userAltMeters = userAltMeters;
-    return doInitOnce();
+int lib1090Init() {
+    return 0;
 }
 
 int lib1090Uninit() {
     int status = lib1090JoinThread(NULL);
-    pthread_cond_destroy(&Modes.data_cond);
-    pthread_mutex_destroy(&Modes.data_mutex);
-    close(lib1090Config.pipedes[0]);
-    close(lib1090Config.pipedes[1]);
-    close(lib1090Config.pipefd);
-    return status;
+    if (status != 0) {
+        //idk
+    }
+
+    status = lib1090ReapDump1090();
+    if (status != 0) {
+        //idk
+    }
+
+    return 0;
 }
 
-static void lib1090MainLoop() {
+static void __lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
 
     while (!Modes.exit) {
@@ -190,29 +188,29 @@ ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t times
 }
 
 static void* __lib1090RunThread(void* pparam) {
-    lib1090MainLoop();
+    __lib1090MainLoop();
     return NULL;
 }
 
 // will return -EBUSY if the thread is already running
 // ( <0 indicating it was an error returned by ME and not the pthread library)
 int lib1090RunThread(void *udata) {
-    int err = doInitOnce();
+    if (Modes.reader_thread != 0) {
+        return -EBUSY;
+    }
+    int err = __lib1090InitThread();
     if (err != 0) {
         return err;
-    }
-    if (lib1090Config.libThread != 0) {
-        return -EBUSY;
     }
     if (udata == NULL) {
         udata = __builtin_return_address(0);
     }
-    return pthread_create(&lib1090Config.libThread, NULL, __lib1090RunThread, udata);
+    return pthread_create(&Modes.reader_thread, NULL, __lib1090RunThread, udata);
 }
 
 int lib1090JoinThread(void **retptr) {
     // thread already joined or never created
-    if (lib1090Config.libThread == 0) {
+    if (Modes.reader_thread == 0) {
         return -EINVAL;
     }
     void *dummy;
@@ -223,10 +221,15 @@ int lib1090JoinThread(void **retptr) {
     Modes.exit = 1;
     pthread_cond_signal(&Modes.data_cond);
     pthread_mutex_unlock(&Modes.data_mutex);
-    int status = pthread_join(lib1090Config.libThread, retptr);
-    if (status == 0) {
-        lib1090Config.libThread = 0;
+    int status = pthread_join(Modes.reader_thread, retptr);
+    if (status != 0) {
+        return status;
     }
+    Modes.reader_thread = 0;
+    pthread_cond_destroy(&Modes.data_cond);
+    pthread_mutex_destroy(&Modes.data_mutex);
+    close(lib1090Config.pipefd);
+    lib1090Config.pipefd = 0;
     return status;
 }
 
@@ -326,11 +329,44 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
     return msgLen;
 }
 
-void lib1090GetModes(struct modes_t** modesOut, struct lib1090Config_t** lib1090ConfigOut) {
-    if (modesOut != NULL) {
-        *modesOut = &Modes;
+static int __lib1090ChildMain() {
+    return 0;
+}
+
+int lib1090ForkDump1090(int sample_pipe_fd) {
+    int err = pipe(lib1090Config.pipedes);
+    if (err != 0) {
+        switch (err) {
+            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
+            case EMFILE:
+            // The number of simultaneously open files in the system would exceed a system-imposed limit.
+            case ENFILE:
+            default:
+                return err;
+                break;
+        }
     }
-    if (lib1090ConfigOut != NULL) {
-        *lib1090ConfigOut = &lib1090Config;
+    lib1090Config.childPid = fork();
+    if (lib1090Config.childPid > 0) { // parent
+        return 0;
+    } else if (lib1090Config.childPid == 0) { // child
+        return __lib1090ChildMain();
+    } else { // lib1090Config.childPid < 0
+        fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
+        return errno;
     }
+}
+
+int lib1090ReapDump1090() {
+    if (lib1090Config.childPid == 0) {
+        return 0;
+    }
+    int wstatus;
+    close(lib1090Config.pipedes[0]);
+    close(lib1090Config.pipedes[1]);
+    pid_t pid = waitpid(-1, &wstatus, 0);
+    if (pid != 0) {
+        // ????
+    }
+    return wstatus;
 }
