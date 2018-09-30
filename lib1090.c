@@ -458,7 +458,7 @@ int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut) {
 
 static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%f", forkInfo->sample_rate);
-
+    forkInfo->jsonDir = "/tmp/piaware";
     int argc = 0;
     const char *argv[1024];
     argv[argc++] = "dump1090";
@@ -515,8 +515,12 @@ int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
     if (forkInfo->childPid > 0) { // parent
     //    signal(SIGINT, __dump1090ForkSignalHandler);
     //    signal(SIGTERM, __dump1090ForkSignalHandler);
+        close(forkInfo->pipedes[1]);
+        forkInfo->pipedes[1] = 0;
         return 0;
     } else if (forkInfo->childPid == 0) { // child
+        close(forkInfo->pipedes[0]);
+        forkInfo->pipedes[0] = 0;
         return __lib1090Dump1090ForkMain(forkInfo);
     } else { // lib1090Config.childPid < 0
         fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
@@ -546,8 +550,8 @@ int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo) {
     }
     close(forkInfo->pipedes[0]);
     forkInfo->pipedes[0] = 0;
-    close(forkInfo->pipedes[1]);
-    forkInfo->pipedes[1] = 0;
+    //close(forkInfo->pipedes[1]);
+    //forkInfo->pipedes[1] = 0;
     free(forkInfo);
     *pForkInfo = NULL;
     return 0;
