@@ -1360,19 +1360,23 @@ void mainLoopSdr(void);
 void backgroundTasks(void);
 void install_signal_handlers(bool reset);
 
+int dump1090main(int argc, char **argv);
+int faup1090main(int argc, char **argv);
+int view1090main(int argc, char **argv);
+
 // from lib1090.c
 static const double _3dBFS = 0.501187234; //pow(10.0, -3.0/10.0);
 
 struct lib1090Config_t {
-    float userLat;
-    float userLon;
-    float userAltMeters;
-    pthread_t libThread;
+    const char *userLat;
+    const char *userLon;
+    const char *userAltMeters;
     int pipedes[2];
     const char *beastOutPipeName;
     int pipefd;
     pid_t childPid;
     int sample_rate;
+    const char *jsonDir;
 };
 
 void lib1090GetConfig(struct lib1090Config_t **configOut);
@@ -1389,7 +1393,7 @@ int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut); // check crc, fix if
 ssize_t lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame, uint64_t timestamp, double signalLevel);
 ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, size_t beastBufferLen, bool writeToPipe);
 
-int lib1090ForkDump1090(int sample_pipe_fd);
+int lib1090ForkDump1090(int *sample_pipe_fd);
 int lib1090ReapDump1090();
 
 #ifdef __cplusplus

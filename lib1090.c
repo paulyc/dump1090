@@ -59,7 +59,7 @@
 #include <sys/wait.h>
 
 static struct lib1090Config_t lib1090Config = {
-    0.0f, 0.0f, 0.0f, 0, { 0, 0 }, NULL, 0, 0
+    NULL, NULL, NULL, { 0, 0 }, NULL, 0, 0, 4000000, NULL
 };
 
 void lib1090GetConfig(struct lib1090Config_t **configOut) {
@@ -84,9 +84,15 @@ static int __lib1090InitThread() {
 
     Modes.net = 1;
     Modes.sdr_type = SDR_NONE;
-    Modes.fUserLat = lib1090Config.userLat;
-    Modes.fUserLon = lib1090Config.userLon;
-    Modes.fUserAltM = lib1090Config.userAltMeters;
+    if (lib1090Config.userLat != NULL) {
+        Modes.fUserLat = atof(lib1090Config.userLat);
+    }
+    if (lib1090Config.userLon != NULL) {
+        Modes.fUserLon = atof(lib1090Config.userLon);
+    }
+    if (lib1090Config.userAltMeters != NULL) {
+        Modes.fUserAltM = atof(lib1090Config.userAltMeters);
+    }
     Modes.json_dir = "/tmp/piaware";
     Modes.mode_ac = 1;
     Modes.mode_ac_auto = 0;
@@ -104,9 +110,6 @@ static int __lib1090InitThread() {
     modesInit();
     modesInitNet();
     modesInitStats();
-
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
 
     if (lib1090Config.beastOutPipeName != NULL) {
         unlink(lib1090Config.beastOutPipeName);
@@ -165,6 +168,54 @@ static void __lib1090MainLoop() {
     pthread_mutex_unlock(&Modes.data_mutex);
 }
 
+static void* __lib1090RunThread(void* pparam) {
+    __lib1090MainLoop();
+    return NULL;
+}
+
+// will return -EBUSY if the thread is already running
+// ( <0 indicating it was an error returned by ME and not the pthread library)
+int lib1090RunThread(void *udata) {
+    if (Modes.reader_thread != 0) {
+        return -EBUSY;
+    }
+    int err = __lib1090InitThread();
+    if (err != 0) {
+        return err;
+    }
+    if (udata == NULL) {
+        udata = __builtin_return_address(0);
+    }
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
+    return pthread_create(&Modes.reader_thread, NULL, __lib1090RunThread, udata);
+}
+
+int lib1090JoinThread(void **retptr) {
+    // thread already joined or never created
+    if (Modes.reader_thread == 0) {
+        return 0;
+    }
+    void *dummy;
+    if (retptr == NULL) {
+        retptr = &dummy;
+    }
+    pthread_mutex_lock(&Modes.data_mutex);
+    Modes.exit = 1;
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    int status = pthread_join(Modes.reader_thread, retptr);
+    if (status != 0) {
+        return status;
+    }
+    Modes.reader_thread = 0;
+    pthread_cond_destroy(&Modes.data_cond);
+    pthread_mutex_destroy(&Modes.data_mutex);
+    close(lib1090Config.pipefd);
+    lib1090Config.pipefd = 0;
+    return status;
+}
+
 ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp) {
     uint8_t frameOut[MAX_BEAST_MSG_LEN];
     ssize_t res = lib1090FixupFrame(frm, frameOut);
@@ -185,52 +236,6 @@ ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t times
 
     uint8_t beastbufferOut[MAX_BEAST_MSG_LEN];
     return lib1090FormatBeast(mm, beastbufferOut, sizeof(beastbufferOut), true);
-}
-
-static void* __lib1090RunThread(void* pparam) {
-    __lib1090MainLoop();
-    return NULL;
-}
-
-// will return -EBUSY if the thread is already running
-// ( <0 indicating it was an error returned by ME and not the pthread library)
-int lib1090RunThread(void *udata) {
-    if (Modes.reader_thread != 0) {
-        return -EBUSY;
-    }
-    int err = __lib1090InitThread();
-    if (err != 0) {
-        return err;
-    }
-    if (udata == NULL) {
-        udata = __builtin_return_address(0);
-    }
-    return pthread_create(&Modes.reader_thread, NULL, __lib1090RunThread, udata);
-}
-
-int lib1090JoinThread(void **retptr) {
-    // thread already joined or never created
-    if (Modes.reader_thread == 0) {
-        return -EINVAL;
-    }
-    void *dummy;
-    if (retptr == NULL) {
-        retptr = &dummy;
-    }
-    pthread_mutex_lock(&Modes.data_mutex);
-    Modes.exit = 1;
-    pthread_cond_signal(&Modes.data_cond);
-    pthread_mutex_unlock(&Modes.data_mutex);
-    int status = pthread_join(Modes.reader_thread, retptr);
-    if (status != 0) {
-        return status;
-    }
-    Modes.reader_thread = 0;
-    pthread_cond_destroy(&Modes.data_cond);
-    pthread_mutex_destroy(&Modes.data_mutex);
-    close(lib1090Config.pipefd);
-    lib1090Config.pipefd = 0;
-    return status;
 }
 
 // returns number of errors fixed, or -1 if it was unfixable
@@ -330,10 +335,51 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
 }
 
 static int __lib1090ChildMain() {
-    return 0;
+    int argc = 0;
+    const char *argv[1024];
+    argv[argc++] = "dump1090";
+    argv[argc++] = "--ifile";
+    argv[argc++] = "-";
+    argv[argc++] = "--iformat";
+    argv[argc++] = "SC16";
+    argv[argc++] = "--throttle";
+    argv[argc++] = "--gain";
+    argv[argc++] = "-10";
+    argv[argc++] = "--net";
+    argv[argc++] = "--modeac";
+    argv[argc++] = "--forward-mlat";
+    if (lib1090Config.userLat != NULL) {
+        argv[argc++] = "--lat";
+        argv[argc++] = lib1090Config.userLat;
+    }
+    if (lib1090Config.userLon != NULL) {
+        argv[argc++] = "--lon";
+        argv[argc++] = lib1090Config.userLon;
+    }
+    //if (lib1090Config.userAltMeters != NULL) {
+    //    Modes.fUserAltM = atof(lib1090Config.userAltMeters);
+    //}
+    argv[argc++] = "--aggressive";
+    argv[argc++] = "--quiet";
+    if (lib1090Config.jsonDir != NULL) {
+        argv[argc++] = "--write-json";
+        argv[argc++] = lib1090Config.jsonDir;
+    }
+    argv[argc++] = "--json-location-accuracy";
+    argv[argc++] = "1";
+    argv[argc++] = "--dcfilter";
+    argv[argc] = NULL;
+
+    int res = dup2(lib1090Config.pipedes[1], 0);
+    if (res == -1) {
+        fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
+        return errno;
+    }
+    return dump1090main(argc, (char**)argv);
 }
 
-int lib1090ForkDump1090(int sample_pipe_fd) {
+int lib1090ForkDump1090(int *sample_pipe_fd) {
+    *sample_pipe_fd = -1;
     int err = pipe(lib1090Config.pipedes);
     if (err != 0) {
         switch (err) {
@@ -346,13 +392,21 @@ int lib1090ForkDump1090(int sample_pipe_fd) {
                 break;
         }
     }
+
     lib1090Config.childPid = fork();
     if (lib1090Config.childPid > 0) { // parent
+        *sample_pipe_fd = lib1090Config.pipedes[0];
+        signal(SIGINT, signalHandler);
+        signal(SIGTERM, signalHandler);
         return 0;
     } else if (lib1090Config.childPid == 0) { // child
         return __lib1090ChildMain();
     } else { // lib1090Config.childPid < 0
         fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
+        close(lib1090Config.pipedes[0]);
+        lib1090Config.pipedes[0] = 0;
+        close(lib1090Config.pipedes[1]);
+        lib1090Config.pipedes[1] = 0;
         return errno;
     }
 }
@@ -361,12 +415,16 @@ int lib1090ReapDump1090() {
     if (lib1090Config.childPid == 0) {
         return 0;
     }
+    kill(lib1090Config.childPid, SIGINT);
     int wstatus;
-    close(lib1090Config.pipedes[0]);
-    close(lib1090Config.pipedes[1]);
-    pid_t pid = waitpid(-1, &wstatus, 0);
-    if (pid != 0) {
+    pid_t pid = waitpid(lib1090Config.childPid, &wstatus, 0);
+    if (pid != lib1090Config.childPid) {
         // ????
     }
+    lib1090Config.childPid = 0;
+    close(lib1090Config.pipedes[0]);
+    lib1090Config.pipedes[0] = 0;
+    close(lib1090Config.pipedes[1]);
+    lib1090Config.pipedes[1] = 0;
     return wstatus;
 }

@@ -659,6 +659,10 @@ void mainLoopSdr(void);
 void backgroundTasks(void);
 void install_signal_handlers(bool reset);
 
+int dump1090main(int argc, char **argv);
+int faup1090main(int argc, char **argv);
+int view1090main(int argc, char **argv);
+
 #ifdef __cplusplus
 }
 #endif

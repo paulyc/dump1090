@@ -85,7 +85,7 @@ target_link_libraries(
 
 set_target_properties(
 	1090 PROPERTIES
-	VERSION 0.1.1
+	VERSION 0.2.0
 	SOVERSION 0
 )
 
