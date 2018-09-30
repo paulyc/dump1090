@@ -406,7 +406,9 @@ struct modes_t {                             // Internal state
     int stats_latest_1min;
     struct stats stats_5min;
     struct stats stats_15min;
-} Modes;
+};
+
+extern struct modes_t Modes;
 
 // The struct we use to store information about a decoded message.
 struct modesMessage {

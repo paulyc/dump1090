@@ -105,7 +105,7 @@ static int __lib1090InitThread() {
     Modes.net_input_beast_ports = NULL;
     Modes.net_output_beast_ports = NULL;
     Modes.net_verbatim = 0;
-    Modes.sample_rate = 4000000.0;
+    //Modes.sample_rate = 4000000.0;
 
     modesInit();
     modesInitNet();
@@ -132,12 +132,7 @@ int lib1090Uninit() {
         //idk
     }
 
-    status = lib1090ReapDump1090();
-    if (status != 0) {
-        //idk
-    }
-
-    return 0;
+    return status;
 }
 
 static void __lib1090MainLoop() {
@@ -427,4 +422,133 @@ int lib1090ReapDump1090() {
     close(lib1090Config.pipedes[1]);
     lib1090Config.pipedes[1] = 0;
     return wstatus;
+}
+
+/*
+struct dump1090Fork_t {
+    const char *userLat;
+    const char *userLon;
+    int pipedes[2];
+    pid_t childPid;
+    float sample_rate;
+    const char *jsonDir;
+};
+*/
+
+int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut) {
+    struct dump1090Fork_t *forkInfo = malloc(sizeof(struct dump1090Fork_t));
+    memset(forkInfo, '\0', sizeof(struct dump1090Fork_t));
+    forkInfo->sample_rate = 4000000.0;
+    int err = pipe(forkInfo->pipedes);
+    if (err != 0) {
+        switch (err) {
+            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
+            case EMFILE:
+            // The number of simultaneously open files in the system would exceed a system-imposed limit.
+            case ENFILE:
+            default:
+                *forkInfoOut = NULL;
+                return err;
+                break;
+        }
+    }
+    *forkInfoOut = forkInfo;
+    return 0;
+}
+
+static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
+    snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%f", forkInfo->sample_rate);
+
+    int argc = 0;
+    const char *argv[1024];
+    argv[argc++] = "dump1090";
+    argv[argc++] = "--ifile";
+    argv[argc++] = "-";
+    argv[argc++] = "--iformat";
+    argv[argc++] = "SC16";
+    argv[argc++] = "--samplerate";
+    argv[argc++] = forkInfo->scratch;
+    argv[argc++] = "--throttle";
+    argv[argc++] = "--gain";
+    argv[argc++] = "-10";
+    argv[argc++] = "--net";
+    argv[argc++] = "--modeac";
+    argv[argc++] = "--forward-mlat";
+    if (forkInfo->userLat != NULL) {
+        argv[argc++] = "--lat";
+        argv[argc++] = forkInfo->userLat;
+    }
+    if (forkInfo->userLon != NULL) {
+        argv[argc++] = "--lon";
+        argv[argc++] = forkInfo->userLon;
+    }
+    argv[argc++] = "--aggressive";
+    argv[argc++] = "--quiet";
+    if (forkInfo->jsonDir != NULL) {
+        argv[argc++] = "--write-json";
+        argv[argc++] = forkInfo->jsonDir;
+    }
+    argv[argc++] = "--json-location-accuracy";
+    argv[argc++] = "1";
+    argv[argc++] = "--dcfilter";
+    argv[argc] = NULL;
+
+    int res = dup2(forkInfo->pipedes[1], 0);
+    if (res == -1) {
+        fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
+        return errno;
+    }
+    return dump1090main(argc, (char**)argv);
+}
+
+//static void __dump1090ForkSignalHandler(int dummy) {
+//    MODES_NOTUSED(dummy);
+//    lib1090KillDump1090Fork();
+//}
+
+int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
+    if (forkInfo->childPid != 0) {
+        return -1;
+    }
+
+    forkInfo->childPid = fork();
+    if (forkInfo->childPid > 0) { // parent
+    //    signal(SIGINT, __dump1090ForkSignalHandler);
+    //    signal(SIGTERM, __dump1090ForkSignalHandler);
+        return 0;
+    } else if (forkInfo->childPid == 0) { // child
+        return __lib1090Dump1090ForkMain(forkInfo);
+    } else { // lib1090Config.childPid < 0
+        fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
+        return errno;
+    }
+}
+int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo) {
+    if (forkInfo->childPid == 0) {
+        return 0;
+    }
+    kill(forkInfo->childPid, SIGINT);
+    int wstatus;
+    pid_t pid = waitpid(forkInfo->childPid, &wstatus, 0);
+    if (pid != forkInfo->childPid) {
+        // ????
+    }
+    forkInfo->childPid = 0;
+    return wstatus;
+}
+int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo) {
+    struct dump1090Fork_t *forkInfo = *pForkInfo;
+    if (forkInfo == NULL) {
+        return -1;
+    }
+    if (forkInfo->childPid != 0) { // child running
+        return -2;
+    }
+    close(forkInfo->pipedes[0]);
+    forkInfo->pipedes[0] = 0;
+    close(forkInfo->pipedes[1]);
+    forkInfo->pipedes[1] = 0;
+    free(forkInfo);
+    *pForkInfo = NULL;
+    return 0;
 }

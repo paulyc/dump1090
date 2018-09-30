@@ -82,6 +82,7 @@ void ifileShowHelp()
     printf("--ifile <path>           read samples from given file ('-' for stdin)\n");
     printf("--iformat <type>         set sample format (UC8, SC16, SC16Q11)\n");
     printf("--throttle               process samples at the original capture speed\n");
+    printf("--samplerate <rate>      original sample rate\n");
     printf("\n");
 }
 
@@ -109,6 +110,8 @@ bool ifileHandleOption(int argc, char **argv, int *jptr)
         }
     } else if (!strcmp(argv[j],"--throttle")) {
         ifile.throttle = true;
+    } else if (!strcmp(argv[j++],"--samplerate") && more) {
+        Modes.sample_rate = strtof(argv[j++], NULL);
     } else {
         return false;
     }

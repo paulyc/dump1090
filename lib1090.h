@@ -780,7 +780,9 @@ struct modes_t {                             // Internal state
     int stats_latest_1min;
     struct stats stats_5min;
     struct stats stats_15min;
-} Modes;
+};
+
+extern struct modes_t Modes;
 
 // The struct we use to store information about a decoded message.
 struct modesMessage {
@@ -1395,6 +1397,21 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
 
 int lib1090ForkDump1090(int *sample_pipe_fd);
 int lib1090ReapDump1090();
+
+struct dump1090Fork_t {
+    const char *userLat;
+    const char *userLon;
+    int pipedes[2];
+    pid_t childPid;
+    float sample_rate;
+    const char *jsonDir;
+    char scratch[128];
+};
+
+int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut);
+int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo);
+int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo);
+int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo);
 
 #ifdef __cplusplus
 }

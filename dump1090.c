@@ -60,6 +60,8 @@
 // ============================= Utility functions ==========================
 //
 
+struct modes_t Modes;
+
 static bool reset_signal_handlers = true;
 
 static void sigintHandler(int dummy) {
@@ -174,7 +176,9 @@ void modesInit(void) {
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
 
-    Modes.sample_rate = 2400000.0;
+    if (Modes.sample_rate < 2400000.0) {
+        Modes.sample_rate = 2400000.0;
+    }
 
     // Allocate the various buffers used by Modes
     Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * Modes.sample_rate;
