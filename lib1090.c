@@ -442,7 +442,7 @@ int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut) {
     *forkInfoOut = forkInfo;
     return 0;
 }
-
+extern char **environ;
 static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%f", forkInfo->sample_rate);
     forkInfo->jsonDir = "/tmp/piaware";
@@ -459,6 +459,8 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     argv[argc++] = "--gain";
     argv[argc++] = "-10";
     argv[argc++] = "--net";
+    argv[argc++] = "--net-bo-port";
+    argv[argc++] = "30005";
     argv[argc++] = "--modeac";
     argv[argc++] = "--forward-mlat";
     if (forkInfo->userLat != NULL) {
@@ -487,7 +489,8 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     }
     close(forkInfo->pipedes[0]);
     close(forkInfo->pipedes[1]);
-    return dump1090main(argc, (char**)argv);
+    return execve("/usr/local/bin/dump1090", (char*const*)argv, environ);
+    //return dump1090main(argc, (char**)argv);
 }
 
 //static void __dump1090ForkSignalHandler(int dummy) {
