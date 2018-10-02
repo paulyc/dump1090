@@ -439,19 +439,6 @@ int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut) {
     struct dump1090Fork_t *forkInfo = malloc(sizeof(struct dump1090Fork_t));
     memset(forkInfo, '\0', sizeof(struct dump1090Fork_t));
     forkInfo->sample_rate = 4000000.0;
-    int err = pipe(forkInfo->pipedes);
-    if (err != 0) {
-        switch (err) {
-            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
-            case EMFILE:
-            // The number of simultaneously open files in the system would exceed a system-imposed limit.
-            case ENFILE:
-            default:
-                *forkInfoOut = NULL;
-                return err;
-                break;
-        }
-    }
     *forkInfoOut = forkInfo;
     return 0;
 }
@@ -498,6 +485,8 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
         fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
         return errno;
     }
+    close(forkInfo->pipedes[0]);
+    close(forkInfo->pipedes[1]);
     return dump1090main(argc, (char**)argv);
 }
 
@@ -511,16 +500,26 @@ int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
         return -1;
     }
 
+    int err = pipe(forkInfo->pipedes);
+    if (err != 0) {
+        switch (err) {
+                //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
+            case EMFILE:
+                // The number of simultaneously open files in the system would exceed a system-imposed limit.
+            case ENFILE:
+            default:
+                return err;
+                break;
+        }
+    }
+
     forkInfo->childPid = fork();
     if (forkInfo->childPid > 0) { // parent
     //    signal(SIGINT, __dump1090ForkSignalHandler);
     //    signal(SIGTERM, __dump1090ForkSignalHandler);
         close(forkInfo->pipedes[1]);
-        forkInfo->pipedes[1] = 0;
         return 0;
     } else if (forkInfo->childPid == 0) { // child
-        close(forkInfo->pipedes[0]);
-        forkInfo->pipedes[0] = 0;
         return __lib1090Dump1090ForkMain(forkInfo);
     } else { // lib1090Config.childPid < 0
         fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
@@ -531,6 +530,7 @@ int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo) {
     if (forkInfo->childPid == 0) {
         return 0;
     }
+    close(forkInfo->pipedes[0]);
     kill(forkInfo->childPid, SIGINT);
     int wstatus;
     pid_t pid = waitpid(forkInfo->childPid, &wstatus, 0);
@@ -548,10 +548,7 @@ int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo) {
     if (forkInfo->childPid != 0) { // child running
         return -2;
     }
-    close(forkInfo->pipedes[0]);
-    forkInfo->pipedes[0] = 0;
-    //close(forkInfo->pipedes[1]);
-    //forkInfo->pipedes[1] = 0;
+
     free(forkInfo);
     *pForkInfo = NULL;
     return 0;
