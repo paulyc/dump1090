@@ -110,8 +110,8 @@ bool ifileHandleOption(int argc, char **argv, int *jptr)
         }
     } else if (!strcmp(argv[j],"--throttle")) {
         ifile.throttle = true;
-    } else if (!strcmp(argv[j++],"--samplerate") && more) {
-        Modes.sample_rate = strtof(argv[j++], NULL);
+    } else if (!strcmp(argv[j],"--samplerate") && more) {
+        Modes.sample_rate = strtof(argv[++j], NULL);
     } else {
         return false;
     }

@@ -370,6 +370,7 @@ static int __lib1090ChildMain() {
         fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
         return errno;
     }
+    close(lib1090Config.pipedes[1]);
     return dump1090main(argc, (char**)argv);
 }
 
@@ -399,9 +400,7 @@ int lib1090ForkDump1090(int *sample_pipe_fd) {
     } else { // lib1090Config.childPid < 0
         fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
         close(lib1090Config.pipedes[0]);
-        lib1090Config.pipedes[0] = 0;
         close(lib1090Config.pipedes[1]);
-        lib1090Config.pipedes[1] = 0;
         return errno;
     }
 }
@@ -456,8 +455,8 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     argv[argc++] = "--samplerate";
     argv[argc++] = forkInfo->scratch;
     argv[argc++] = "--throttle";
-    argv[argc++] = "--gain";
-    argv[argc++] = "-10";
+    //argv[argc++] = "--gain";
+    //argv[argc++] = "-10";
     argv[argc++] = "--net";
     argv[argc++] = "--net-bo-port";
     argv[argc++] = "30005";
@@ -472,7 +471,7 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
         argv[argc++] = forkInfo->userLon;
     }
     argv[argc++] = "--aggressive";
-    argv[argc++] = "--quiet";
+    //argv[argc++] = "--quiet";
     if (forkInfo->jsonDir != NULL) {
         argv[argc++] = "--write-json";
         argv[argc++] = forkInfo->jsonDir;
@@ -480,17 +479,21 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     argv[argc++] = "--json-location-accuracy";
     argv[argc++] = "1";
     argv[argc++] = "--dcfilter";
-    argv[argc] = NULL;
+    argv[argc] = "";
 
-    int res = dup2(forkInfo->pipedes[1], 0);
+    int res = dup2(forkInfo->pipedes[0], 0);
     if (res == -1) {
         fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
         return errno;
     }
     close(forkInfo->pipedes[0]);
     close(forkInfo->pipedes[1]);
-    return execve("/usr/local/bin/dump1090", (char*const*)argv, environ);
-    //return dump1090main(argc, (char**)argv);
+    res = execve("/usr/local/bin/dump1090", (char*const*)argv, environ);
+    //res = dump1090main(argc, (char**)argv);
+    //if (res != 0) {
+        fprintf(stderr, "dump1090main returned %d\n", res);
+    //}
+    return res;
 }
 
 //static void __dump1090ForkSignalHandler(int dummy) {
@@ -520,7 +523,7 @@ int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
     if (forkInfo->childPid > 0) { // parent
     //    signal(SIGINT, __dump1090ForkSignalHandler);
     //    signal(SIGTERM, __dump1090ForkSignalHandler);
-        close(forkInfo->pipedes[1]);
+        close(forkInfo->pipedes[0]);
         return 0;
     } else if (forkInfo->childPid == 0) { // child
         return __lib1090Dump1090ForkMain(forkInfo);
