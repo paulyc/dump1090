@@ -176,9 +176,10 @@ void modesInit(void) {
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
 
-    if (Modes.sample_rate < 2400000.0) {
+    // oops, demodulator doesn't support any other sample rate
+    //if (Modes.sample_rate < 2400000.0) {
         Modes.sample_rate = 2400000.0;
-    }
+    //}
 
     // Allocate the various buffers used by Modes
     Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * Modes.sample_rate;
@@ -768,7 +769,13 @@ int dump1090main(int argc, char **argv) {
     modesInitConfig();
 
     // signal handlers:
-    install_signal_handlers(true);
+    install_signal_handlers(false);
+
+    //FILE *output = fopen("/tmp/dump1090.out", "w");
+    //FILE *err = fopen("/tmp/dump1090.err", "w");
+    //dup2(fileno(output), fileno(stdout));
+    //dup2(fileno(err), fileno(stderr));
+    //dup2(fileno(stdout), fileno(stderr));
 
     // Parse the command line options
     dump1090ParseArgs(argc, argv);
@@ -813,6 +820,9 @@ int dump1090main(int argc, char **argv) {
     log_with_timestamp("Normal exit.");
 
     sdrClose();
+    
+    //fclose(output);
+    //fclose(err);
 
 #ifndef _WIN32
     pthread_exit(0);

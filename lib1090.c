@@ -329,139 +329,56 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
     return msgLen;
 }
 
-static int __lib1090ChildMain() {
-    int argc = 0;
-    const char *argv[1024];
-    argv[argc++] = "dump1090";
-    argv[argc++] = "--ifile";
-    argv[argc++] = "-";
-    argv[argc++] = "--iformat";
-    argv[argc++] = "SC16";
-    argv[argc++] = "--throttle";
-    argv[argc++] = "--gain";
-    argv[argc++] = "-10";
-    argv[argc++] = "--net";
-    argv[argc++] = "--modeac";
-    argv[argc++] = "--forward-mlat";
-    if (lib1090Config.userLat != NULL) {
-        argv[argc++] = "--lat";
-        argv[argc++] = lib1090Config.userLat;
-    }
-    if (lib1090Config.userLon != NULL) {
-        argv[argc++] = "--lon";
-        argv[argc++] = lib1090Config.userLon;
-    }
-    //if (lib1090Config.userAltMeters != NULL) {
-    //    Modes.fUserAltM = atof(lib1090Config.userAltMeters);
-    //}
-    argv[argc++] = "--aggressive";
-    argv[argc++] = "--quiet";
-    if (lib1090Config.jsonDir != NULL) {
-        argv[argc++] = "--write-json";
-        argv[argc++] = lib1090Config.jsonDir;
-    }
-    argv[argc++] = "--json-location-accuracy";
-    argv[argc++] = "1";
-    argv[argc++] = "--dcfilter";
-    argv[argc] = NULL;
-
-    int res = dup2(lib1090Config.pipedes[1], 0);
-    if (res == -1) {
-        fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
-        return errno;
-    }
-    close(lib1090Config.pipedes[1]);
-    return dump1090main(argc, (char**)argv);
-}
-
-int lib1090ForkDump1090(int *sample_pipe_fd) {
-    *sample_pipe_fd = -1;
-    int err = pipe(lib1090Config.pipedes);
-    if (err != 0) {
-        switch (err) {
-            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
-            case EMFILE:
-            // The number of simultaneously open files in the system would exceed a system-imposed limit.
-            case ENFILE:
-            default:
-                return err;
-                break;
-        }
-    }
-
-    lib1090Config.childPid = fork();
-    if (lib1090Config.childPid > 0) { // parent
-        *sample_pipe_fd = lib1090Config.pipedes[0];
-        signal(SIGINT, signalHandler);
-        signal(SIGTERM, signalHandler);
-        return 0;
-    } else if (lib1090Config.childPid == 0) { // child
-        return __lib1090ChildMain();
-    } else { // lib1090Config.childPid < 0
-        fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
-        close(lib1090Config.pipedes[0]);
-        close(lib1090Config.pipedes[1]);
-        return errno;
-    }
-}
-
-int lib1090ReapDump1090() {
-    if (lib1090Config.childPid == 0) {
-        return 0;
-    }
-    kill(lib1090Config.childPid, SIGINT);
-    int wstatus;
-    pid_t pid = waitpid(lib1090Config.childPid, &wstatus, 0);
-    if (pid != lib1090Config.childPid) {
-        // ????
-    }
-    lib1090Config.childPid = 0;
-    close(lib1090Config.pipedes[0]);
-    lib1090Config.pipedes[0] = 0;
-    close(lib1090Config.pipedes[1]);
-    lib1090Config.pipedes[1] = 0;
-    return wstatus;
-}
-
-/*
-struct dump1090Fork_t {
-    const char *userLat;
-    const char *userLon;
-    int pipedes[2];
-    pid_t childPid;
-    float sample_rate;
-    const char *jsonDir;
-};
-*/
-
-int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut) {
+int lib1090InitDump1090(struct dump1090Fork_t **forkInfoOut) {
     struct dump1090Fork_t *forkInfo = malloc(sizeof(struct dump1090Fork_t));
     memset(forkInfo, '\0', sizeof(struct dump1090Fork_t));
-    forkInfo->sample_rate = 4000000.0;
+    forkInfo->sample_rate = 2400000.0f;
+    forkInfo->jsonDir = "/tmp/piaware";
     *forkInfoOut = forkInfo;
     return 0;
 }
+
 extern char **environ;
+
 static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
-    snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%f", forkInfo->sample_rate);
-    forkInfo->jsonDir = "/tmp/piaware";
+    //snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%d", (int)forkInfo->sample_rate);
+
     int argc = 0;
     const char *argv[1024];
     argv[argc++] = "dump1090";
+    argv[argc++] = "--device-type";
+    argv[argc++] = "ifile";
     argv[argc++] = "--ifile";
     argv[argc++] = "-";
     argv[argc++] = "--iformat";
     argv[argc++] = "SC16";
-    argv[argc++] = "--samplerate";
-    argv[argc++] = forkInfo->scratch;
-    argv[argc++] = "--throttle";
-    //argv[argc++] = "--gain";
-    //argv[argc++] = "-10";
+    //argv[argc++] = "--samplerate";
+    //argv[argc++] = forkInfo->scratch;
+    //argv[argc++] = "--throttle";
+    argv[argc++] = "--gain";
+    argv[argc++] = "-10";
+    //argv[argc++] = "--debug";
     argv[argc++] = "--net";
     argv[argc++] = "--net-bo-port";
     argv[argc++] = "30005";
+    argv[argc++] = "--net-ri-port";
+    argv[argc++] = "0";
+    argv[argc++] = "--net-ro-port";
+    argv[argc++] = "30002";
+    argv[argc++] = "--net-sbs-port";
+    argv[argc++] = "30003";
+    argv[argc++] = "--net-bi-port";
+    argv[argc++] = "30004,30104";
+    argv[argc++] = "--net-ro-size";
+    argv[argc++] = "1000";
+    argv[argc++] = "--net-heartbeat";
+    argv[argc++] = "60";
+    argv[argc++] = "--net-ro-interval";
+    argv[argc++] = "1";
     argv[argc++] = "--modeac";
-    argv[argc++] = "--forward-mlat";
+    argv[argc++] = "--dcfilter";
+    argv[argc++] = "--net-verbatim";
+    //argv[argc++] = "--forward-mlat";
     if (forkInfo->userLat != NULL) {
         argv[argc++] = "--lat";
         argv[argc++] = forkInfo->userLat;
@@ -478,16 +395,14 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
     }
     argv[argc++] = "--json-location-accuracy";
     argv[argc++] = "1";
-    argv[argc++] = "--dcfilter";
-    argv[argc] = "";
+    argv[argc] = NULL;
 
-    int res = dup2(forkInfo->pipedes[0], 0);
+    int res = dup2(forkInfo->pipedes[0], fileno(stdin));
     if (res == -1) {
         fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
         return errno;
     }
     close(forkInfo->pipedes[0]);
-    close(forkInfo->pipedes[1]);
     res = execve("/usr/local/bin/dump1090", (char*const*)argv, environ);
     //res = dump1090main(argc, (char**)argv);
     //if (res != 0) {
@@ -501,7 +416,7 @@ static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
 //    lib1090KillDump1090Fork();
 //}
 
-int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
+int lib1090ForkDump1090(struct dump1090Fork_t *forkInfo) {
     if (forkInfo->childPid != 0) {
         return -1;
     }
@@ -518,12 +433,14 @@ int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
                 break;
         }
     }
+    //forkInfo->pipedes[1] = open("/tmp/fifo", O_WRONLY|O_CREAT|O_TRUNC);
+    //forkInfo->pipedes[0] = open("/tmp/fifo", O_RDONLY);
 
     forkInfo->childPid = fork();
     if (forkInfo->childPid > 0) { // parent
     //    signal(SIGINT, __dump1090ForkSignalHandler);
     //    signal(SIGTERM, __dump1090ForkSignalHandler);
-        close(forkInfo->pipedes[0]);
+        //close(forkInfo->pipedes[0]);
         return 0;
     } else if (forkInfo->childPid == 0) { // child
         return __lib1090Dump1090ForkMain(forkInfo);
@@ -532,11 +449,11 @@ int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo) {
         return errno;
     }
 }
-int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo) {
+
+int lib1090KillDump1090(struct dump1090Fork_t *forkInfo) {
     if (forkInfo->childPid == 0) {
         return 0;
     }
-    close(forkInfo->pipedes[0]);
     kill(forkInfo->childPid, SIGINT);
     int wstatus;
     pid_t pid = waitpid(forkInfo->childPid, &wstatus, 0);
@@ -544,9 +461,12 @@ int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo) {
         // ????
     }
     forkInfo->childPid = 0;
+    close(forkInfo->pipedes[0]);
+    close(forkInfo->pipedes[1]);
     return wstatus;
 }
-int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo) {
+
+int lib1090FreeDump1090(struct dump1090Fork_t **pForkInfo) {
     struct dump1090Fork_t *forkInfo = *pForkInfo;
     if (forkInfo == NULL) {
         return -1;

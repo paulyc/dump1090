@@ -109,10 +109,21 @@
 # define bswap_32 OSSwapInt32
 # define bswap_64 OSSwapInt64
 # include <machine/endian.h>
-# define le16toh(x) OSSwapLittleToHostInt16(x)
-# define le32toh(x) OSSwapLittleToHostInt32(x)
+#define htobe16(x) OSSwapHostToBigInt16(x)
+#define htole16(x) OSSwapHostToLittleInt16(x)
+#define be16toh(x) OSSwapBigToHostInt16(x)
+#define le16toh(x) OSSwapLittleToHostInt16(x)
 
-#else
+#define htobe32(x) OSSwapHostToBigInt32(x)
+#define htole32(x) OSSwapHostToLittleInt32(x)
+#define be32toh(x) OSSwapBigToHostInt32(x)
+#define le32toh(x) OSSwapLittleToHostInt32(x)
+
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#define htole64(x) OSSwapHostToLittleInt64(x)
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#define le64toh(x) OSSwapLittleToHostInt64(x)
+#else // other platforms
 
 # include <endian.h>
 
@@ -1395,9 +1406,6 @@ int lib1090FixupFrame(uint8_t *frameIn, uint8_t *frameOut); // check crc, fix if
 ssize_t lib1090DecodeFrame(struct modesMessage *mm, uint8_t *frame, uint64_t timestamp, double signalLevel);
 ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, size_t beastBufferLen, bool writeToPipe);
 
-int lib1090ForkDump1090(int *sample_pipe_fd);
-int lib1090ReapDump1090();
-
 struct dump1090Fork_t {
     const char *userLat;
     const char *userLon;
@@ -1408,10 +1416,10 @@ struct dump1090Fork_t {
     char scratch[128];
 };
 
-int lib1090InitDump1090Fork(struct dump1090Fork_t **forkInfoOut);
-int lib1090RunDump1090Fork(struct dump1090Fork_t *forkInfo);
-int lib1090KillDump1090Fork(struct dump1090Fork_t *forkInfo);
-int lib1090FreeDump1090Fork(struct dump1090Fork_t **pForkInfo);
+int lib1090InitDump1090(struct dump1090Fork_t **forkInfoOut);
+int lib1090ForkDump1090(struct dump1090Fork_t *forkInfo);
+int lib1090KillDump1090(struct dump1090Fork_t *forkInfo);
+int lib1090FreeDump1090(struct dump1090Fork_t **pForkInfo);
 
 #ifdef __cplusplus
 }
