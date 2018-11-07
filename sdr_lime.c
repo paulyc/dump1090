@@ -19,8 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "sdr_lime.h"
 #include "dump1090.h"
+#include "sdr_lime.h"
 
 #include <lime/LimeSuite.h>
 

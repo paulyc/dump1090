@@ -25,7 +25,7 @@ include_directories(
 )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -DENABLE_LIMESDR -std=c11 -Wall -Werror")
-set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c sdr_limesdr.c)
+set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c sdr_lime.c)
 
 if(APPLE)
   #for darwin build
