@@ -24,12 +24,17 @@
 
 #include <lime/LimeSuite.h>
 
+typedef int16_t sc16_t[2];
+
 static struct {
     unsigned decimation;
     unsigned lpf_bandwidth;
 
     lms_device_t *device;
     lms_info_str_t device_list[10];
+
+    lms_stream_t stream;
+    lms_stream_status_t stream_status;
 
     iq_convert_fn converter;
     struct converter_state *converter_state;
@@ -156,7 +161,119 @@ error:
 
 void limesdrRun()
 {
+    sc16_t samples[MODES_MAG_BUF_SAMPLES];
+    lms_stream_meta_t meta;
+    static uint64_t nextTimestamp = 0;
+    static bool dropping = false;
+    static struct timespec thread_cpu;
+    static unsigned timeouts = 0;
 
+    if (LimeSDR.device == NULL) {
+        return;
+    }
+
+    int status;
+    if ((status = LMS_SetupStream(LimeSDR.device, &LimeSDR.stream)) < 0) {
+        fprintf(stderr, "LMS_SetupStream failed: %s\n", LMS_GetLastErrorMessage());
+        return;
+    }
+
+    if ((status = LMS_StartStream(&LimeSDR.stream)) < 0) {
+        fprintf(stderr, "LMS_StartStream failed: %s\n", LMS_GetLastErrorMessage());
+        LMS_DestroyStream(LimeSDR.device, &LimeSDR.stream);
+        return;
+    }
+
+    start_cpu_timing(&thread_cpu);
+
+    timeouts = 0; // reset to zero when we get a callback with some data
+    // record initial time for later sys timestamp calculation
+    uint64_t entryTimestamp = mstime();
+
+    pthread_mutex_lock(&Modes.data_mutex);
+    while (!Modes.exit) {
+        pthread_mutex_unlock(&Modes.data_mutex);
+
+        int nSamples = LMS_RecvStream(&LimeSDR.stream, samples, MODES_MAG_BUF_SAMPLES, &meta, 5000);
+        if (nSamples == -1) {
+            fprintf(stderr, "LMS_RecvStream failed: %s\n", LMS_GetLastErrorMessage());
+            break;
+        }
+
+        pthread_mutex_lock(&Modes.data_mutex);
+        unsigned next_free_buffer = (Modes.first_free_buffer + 1) % MODES_MAG_BUFFERS;
+        struct mag_buf *outbuf = &Modes.mag_buffers[Modes.first_free_buffer];
+        struct mag_buf *lastbuf = &Modes.mag_buffers[(Modes.first_free_buffer + MODES_MAG_BUFFERS - 1) % MODES_MAG_BUFFERS];
+        unsigned free_bufs = (Modes.first_filled_buffer - next_free_buffer + MODES_MAG_BUFFERS) % MODES_MAG_BUFFERS;
+
+        if (free_bufs == 0 || (dropping && free_bufs < MODES_MAG_BUFFERS/2)) {
+            // FIFO is full. Drop this block.
+            dropping = true;
+            continue;
+        }
+
+        dropping = false;
+        pthread_mutex_unlock(&Modes.data_mutex);
+
+        // Copy trailing data from last block (or reset if not valid)
+        if (outbuf->dropped == 0) {
+            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+        } else {
+            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+        }
+
+        // start handling metadata blocks
+        outbuf->dropped = 0;
+        outbuf->length = 0;
+        outbuf->mean_level = outbuf->mean_power = 0;
+
+        unsigned blocks_processed = 0;
+        //unsigned samples_per_block = (BladeRF.block_size - 16) / 4;
+
+        static bool first_buffer = true;
+
+        if (!blocks_processed) {
+            // Compute the sample timestamp for the start of the block
+            outbuf->sampleTimestamp = nextTimestamp * 12e6 / Modes.sample_rate / LimeSDR.decimation;
+        }
+
+        // Convert a block of data
+        double mean_level, mean_power;
+        LimeSDR.converter(samples, &outbuf->data[Modes.trailing_samples + outbuf->length], nSamples, LimeSDR.converter_state, &mean_level, &mean_power);
+        outbuf->length += nSamples;
+        outbuf->mean_level += mean_level;
+        outbuf->mean_power += mean_power;
+        nextTimestamp += nSamples * LimeSDR.decimation;
+        ++blocks_processed;
+        timeouts = 0;
+
+        first_buffer = false;
+
+        if (blocks_processed) {
+            // Get the approx system time for the start of this block
+            unsigned block_duration = 1e3 * outbuf->length / Modes.sample_rate;
+            outbuf->sysTimestamp = entryTimestamp - block_duration;
+
+            outbuf->mean_level /= blocks_processed;
+            outbuf->mean_power /= blocks_processed;
+
+            // Push the new data to the demodulation thread
+            pthread_mutex_lock(&Modes.data_mutex);
+
+            // accumulate CPU while holding the mutex, and restart measurement
+            end_cpu_timing(&thread_cpu, &Modes.reader_cpu_accumulator);
+            start_cpu_timing(&thread_cpu);
+
+            Modes.mag_buffers[next_free_buffer].dropped = 0;
+            Modes.mag_buffers[next_free_buffer].length = 0;  // just in case
+            Modes.first_free_buffer = next_free_buffer;
+
+            pthread_cond_signal(&Modes.data_cond);
+        }
+    }
+
+    LMS_StopStream(&LimeSDR.stream);
+    LMS_DestroyStream(LimeSDR.device, &LimeSDR.stream);
 }
 
 void limesdrClose()
