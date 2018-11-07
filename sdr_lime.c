@@ -68,7 +68,11 @@ bool limesdrHandleOption(int argc, char **argv, int *jptr)
         LimeSDR.decimation = atoi(argv[++j]);
     } else if (!strcmp(argv[j], "--limesdr-bandwidth") && more) {
         ++j;
-        LimeSDR.lpf_bandwidth = atoi(argv[j]);
+        if (!strcasecmp(argv[j], "bypass")) {
+            LimeSDR.lpf_bandwidth = 0;
+        } else {
+            LimeSDR.lpf_bandwidth = atoi(argv[j]);
+        }
     } else {
         return false;
     }
@@ -112,17 +116,19 @@ bool limesdrOpen()
         goto error;
     }
 
-    if ((status = LMS_SetLPF(LimeSDR.device, LMS_CH_RX, 0, 1)) < 0) {
+    if ((status = LMS_SetLPF(LimeSDR.device, LMS_CH_RX, 0, LimeSDR.lpf_bandwidth > 0 ? 1 : 0)) < 0) {
         fprintf(stderr, "LMS_SetLPF failed: %s\n", LMS_GetLastErrorMessage());
         goto error;
     }
 
-    if ((status = LMS_SetLPFBW(LimeSDR.device, LMS_CH_RX, 0, LimeSDR.lpf_bandwidth)) < 0) {
-        fprintf(stderr, "LMS_SetLPFBW failed: %s\n", LMS_GetLastErrorMessage());
-        goto error;
+    if (LimeSDR.lpf_bandwidth > 0) {
+        if ((status = LMS_SetLPFBW(LimeSDR.device, LMS_CH_RX, 0, LimeSDR.lpf_bandwidth)) < 0) {
+            fprintf(stderr, "LMS_SetLPFBW failed: %s\n", LMS_GetLastErrorMessage());
+            goto error;
+        }
     }
 
-    /* turn the tx gain right off, just in case */
+    /* disable tx channel, just in case */
     if ((status = LMS_EnableChannel(LimeSDR.device, LMS_CH_TX, 0, 0)) < 0) {
         fprintf(stderr, "LMS_EnableChannel(TX) failed: %s\n", LMS_GetLastErrorMessage());
         goto error;

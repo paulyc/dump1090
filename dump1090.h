@@ -288,7 +288,7 @@ typedef enum {
 //======================== structure declarations =========================
 
 typedef enum {
-    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF
+    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF, SDR_LIMESDR
 } sdr_type_t;
 
 // Structure representing one magnitude buffer
