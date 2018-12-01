@@ -123,3 +123,100 @@ void faupBackgroundTasks(void) {
     trackPeriodicUpdate();
     modesNetPeriodicWork();
 }
+
+//
+// ================================ Main ====================================
+//
+static void showHelp(void) {
+    printf(
+"-----------------------------------------------------------------------------\n"
+"| faup1090 ModeS conversion     %45s |\n"
+"-----------------------------------------------------------------------------\n"
+"--net-bo-ipaddr <addr>   IP address to connect to for Beast data (default: 127.0.0.1)\n"
+"--net-bo-port <port>     Port to connect for Beast data (default: 30005)\n"
+"--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
+"--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
+"--stdout                 REQUIRED. Write results to stdout.\n"
+"--help                   Show this help\n"
+"\n",
+MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION
+    );
+}
+
+//
+//=========================================================================
+//
+int faup1090main(int argc, char **argv) {
+    int j;
+    int stdout_option = 0;
+    char *bo_connect_ipaddr = "127.0.0.1";
+    int bo_connect_port = 30005;
+    struct client *c;
+    struct net_service *beast_input, *fatsv_output;
+
+    // Set sane defaults
+    faupInitConfig();
+
+    // Parse the command line options
+    for (j = 1; j < argc; j++) {
+        int more = j+1 < argc; // There are more arguments
+
+        if (!strcmp(argv[j],"--net-bo-port") && more) {
+            bo_connect_port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-bo-ipaddr") && more) {
+            bo_connect_ipaddr = argv[++j];
+        } else if (!strcmp(argv[j],"--lat") && more) {
+            Modes.fUserLat = atof(argv[++j]);
+        } else if (!strcmp(argv[j],"--lon") && more) {
+            Modes.fUserLon = atof(argv[++j]);
+        } else if (!strcmp(argv[j],"--help")) {
+            showHelp();
+            exit(0);
+        } else if (!strcmp(argv[j],"--stdout")) {
+            stdout_option = 1;
+        } else {
+            fprintf(stderr,
+                "Unknown or not enough arguments for option '%s'.\n\n",
+                argv[j]);
+            showHelp();
+            exit(1);
+        }
+    }
+
+    if (!stdout_option) {
+        fprintf(stderr,
+                "--stdout is required, output always goes to stdout.\n");
+            showHelp();
+        exit(1);
+    }
+
+    // Initialization
+    faupInit();
+    modesInitNet();
+
+    // Set up input connection
+    beast_input = makeBeastInputService();
+    c = serviceConnect(beast_input, bo_connect_ipaddr, bo_connect_port);
+    if (!c) {
+        fprintf (stderr,
+                 "faup1090: failed to connect to %s:%d (is dump1090 running?): %s\n",
+                 bo_connect_ipaddr, bo_connect_port, Modes.aneterr);
+        exit (1);
+    }
+
+    sendBeastSettings(c, "Cdfj"); // Beast binary, no filters, CRC checks on, no mode A/C
+
+    // Set up output connection on stdout
+    fatsv_output = makeFatsvOutputService();
+    createGenericClient(fatsv_output, STDOUT_FILENO);
+    writeFATSVHeader();
+
+    // Run it until we've lost either connection
+    while (!Modes.exit && beast_input->connections && fatsv_output->connections) {
+        backgroundTasks();
+        usleep(100000);
+    }
+
+    return 0;
+}
+

@@ -288,7 +288,7 @@ typedef enum {
 //======================== structure declarations =========================
 
 typedef enum {
-    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF
+    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF, SDR_LIMESDR
 } sdr_type_t;
 
 // Structure representing one magnitude buffer
@@ -406,7 +406,9 @@ struct modes_t {                             // Internal state
     int stats_latest_1min;
     struct stats stats_5min;
     struct stats stats_15min;
-} Modes;
+};
+
+extern struct modes_t Modes;
 
 // The struct we use to store information about a decoded message.
 struct modesMessage {
@@ -658,6 +660,10 @@ void mainLoopNetOnly(void);
 void mainLoopSdr(void);
 void backgroundTasks(void);
 void install_signal_handlers(bool reset);
+
+int dump1090main(int argc, char **argv);
+int faup1090main(int argc, char **argv);
+int view1090main(int argc, char **argv);
 
 #ifdef __cplusplus
 }

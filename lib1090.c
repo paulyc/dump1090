@@ -55,28 +55,44 @@
 #include "lib1090.h"
 #include <pthread.h>
 #include <math.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 static struct lib1090Config_t lib1090Config = {
-    0.0f, 0.0f, 0.0f,
-    PTHREAD_ONCE_INIT, 0,
-    { 0, 0 }, "/tmp/lib1090BeastOutput", 0, 0
+    NULL, NULL, NULL, { 0, 0 }, NULL, 0, 0, 4000000, NULL
 };
+
+void lib1090GetConfig(struct lib1090Config_t **configOut) {
+    if (configOut != NULL) {
+        *configOut = &lib1090Config;
+    }
+}
+
+void lib1090GetModes(struct modes_t** modesOut) {
+    if (modesOut != NULL) {
+        *modesOut = &Modes;
+    }
+}
 
 static void signalHandler(int dummy) {
     MODES_NOTUSED(dummy);
     lib1090Uninit();
 }
 
-static void __lib1090Init() {
+static int __lib1090InitThread() {
     modesInitConfig();
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
 
     Modes.net = 1;
     Modes.sdr_type = SDR_NONE;
-    Modes.fUserLat = lib1090Config.userLat;
-    Modes.fUserLon = lib1090Config.userLon;
-    Modes.fUserAltM = lib1090Config.userAltMeters;
+    if (lib1090Config.userLat != NULL) {
+        Modes.fUserLat = atof(lib1090Config.userLat);
+    }
+    if (lib1090Config.userLon != NULL) {
+        Modes.fUserLon = atof(lib1090Config.userLon);
+    }
+    if (lib1090Config.userAltMeters != NULL) {
+        Modes.fUserAltM = atof(lib1090Config.userAltMeters);
+    }
     Modes.json_dir = "/tmp/piaware";
     Modes.mode_ac = 1;
     Modes.mode_ac_auto = 0;
@@ -89,57 +105,37 @@ static void __lib1090Init() {
     Modes.net_input_beast_ports = NULL;
     Modes.net_output_beast_ports = NULL;
     Modes.net_verbatim = 0;
-    Modes.sample_rate = 4000000.0;
+    //Modes.sample_rate = 4000000.0;
 
     modesInit();
     modesInitNet();
     modesInitStats();
 
-    Modes.exit = 0;
-
-    int err = pipe(lib1090Config.pipedes);
-    if (err != 0) {
-        switch (err) {
-            //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
-            case EMFILE:
-            // The number of simultaneously open files in the system would exceed a system-imposed limit.
-            case ENFILE:
-            default:
-                break;
+    if (lib1090Config.beastOutPipeName != NULL) {
+        unlink(lib1090Config.beastOutPipeName);
+        int err = mkfifo(lib1090Config.beastOutPipeName, 0666);
+        if (err != 0) {
+            return err;
         }
+        lib1090Config.pipefd = open(lib1090Config.beastOutPipeName, O_WRONLY);
     }
-
-    unlink(lib1090Config.beastOutPipeName);
-    err = mkfifo(lib1090Config.beastOutPipeName, 0666);
-    if (err != 0) {
-        //return errno;
-    }
-
-    lib1090Config.pipefd = open(lib1090Config.beastOutPipeName, O_WRONLY);
+    return 0;
 }
 
-static int doInitOnce() {
-    return pthread_once(&lib1090Config.initOnce, __lib1090Init);
-}
-
-int lib1090Init(float userLat, float userLon, float userAltMeters) {
-    lib1090Config.userLat = userLat;
-    lib1090Config.userLon = userLon;
-    lib1090Config.userAltMeters = userAltMeters;
-    return doInitOnce();
+int lib1090Init() {
+    return 0;
 }
 
 int lib1090Uninit() {
     int status = lib1090JoinThread(NULL);
-    pthread_cond_destroy(&Modes.data_cond);
-    pthread_mutex_destroy(&Modes.data_mutex);
-    close(lib1090Config.pipedes[0]);
-    close(lib1090Config.pipedes[1]);
-    close(lib1090Config.pipefd);
+    if (status != 0) {
+        //idk
+    }
+
     return status;
 }
 
-static void lib1090MainLoop() {
+static void __lib1090MainLoop() {
     pthread_mutex_lock(&Modes.data_mutex);
 
     while (!Modes.exit) {
@@ -167,6 +163,54 @@ static void lib1090MainLoop() {
     pthread_mutex_unlock(&Modes.data_mutex);
 }
 
+static void* __lib1090RunThread(void* pparam) {
+    __lib1090MainLoop();
+    return NULL;
+}
+
+// will return -EBUSY if the thread is already running
+// ( <0 indicating it was an error returned by ME and not the pthread library)
+int lib1090RunThread(void *udata) {
+    if (Modes.reader_thread != 0) {
+        return -EBUSY;
+    }
+    int err = __lib1090InitThread();
+    if (err != 0) {
+        return err;
+    }
+    if (udata == NULL) {
+        udata = __builtin_return_address(0);
+    }
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
+    return pthread_create(&Modes.reader_thread, NULL, __lib1090RunThread, udata);
+}
+
+int lib1090JoinThread(void **retptr) {
+    // thread already joined or never created
+    if (Modes.reader_thread == 0) {
+        return 0;
+    }
+    void *dummy;
+    if (retptr == NULL) {
+        retptr = &dummy;
+    }
+    pthread_mutex_lock(&Modes.data_mutex);
+    Modes.exit = 1;
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    int status = pthread_join(Modes.reader_thread, retptr);
+    if (status != 0) {
+        return status;
+    }
+    Modes.reader_thread = 0;
+    pthread_cond_destroy(&Modes.data_cond);
+    pthread_mutex_destroy(&Modes.data_mutex);
+    close(lib1090Config.pipefd);
+    lib1090Config.pipefd = 0;
+    return status;
+}
+
 ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t timestamp) {
     uint8_t frameOut[MAX_BEAST_MSG_LEN];
     ssize_t res = lib1090FixupFrame(frm, frameOut);
@@ -187,47 +231,6 @@ ssize_t lib1090HandleFrame(struct modesMessage *mm, uint8_t *frm, uint64_t times
 
     uint8_t beastbufferOut[MAX_BEAST_MSG_LEN];
     return lib1090FormatBeast(mm, beastbufferOut, sizeof(beastbufferOut), true);
-}
-
-static void* __lib1090RunThread(void* pparam) {
-    lib1090MainLoop();
-    return NULL;
-}
-
-// will return -EBUSY if the thread is already running
-// ( <0 indicating it was an error returned by ME and not the pthread library)
-int lib1090RunThread(void *udata) {
-    int err = doInitOnce();
-    if (err != 0) {
-        return err;
-    }
-    if (lib1090Config.libThread != 0) {
-        return -EBUSY;
-    }
-    if (udata == NULL) {
-        udata = __builtin_return_address(0);
-    }
-    return pthread_create(&lib1090Config.libThread, NULL, __lib1090RunThread, udata);
-}
-
-int lib1090JoinThread(void **retptr) {
-    // thread already joined or never created
-    if (lib1090Config.libThread == 0) {
-        return -EINVAL;
-    }
-    void *dummy;
-    if (retptr == NULL) {
-        retptr = &dummy;
-    }
-    pthread_mutex_lock(&Modes.data_mutex);
-    Modes.exit = 1;
-    pthread_cond_signal(&Modes.data_cond);
-    pthread_mutex_unlock(&Modes.data_mutex);
-    int status = pthread_join(lib1090Config.libThread, retptr);
-    if (status == 0) {
-        lib1090Config.libThread = 0;
-    }
-    return status;
 }
 
 // returns number of errors fixed, or -1 if it was unfixable
@@ -326,11 +329,153 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
     return msgLen;
 }
 
-void lib1090GetModes(struct modes_t** modesOut, struct lib1090Config_t** lib1090ConfigOut) {
-    if (modesOut != NULL) {
-        *modesOut = &Modes;
+int lib1090InitDump1090(struct dump1090Fork_t **forkInfoOut) {
+    struct dump1090Fork_t *forkInfo = malloc(sizeof(struct dump1090Fork_t));
+    memset(forkInfo, '\0', sizeof(struct dump1090Fork_t));
+    forkInfo->sample_rate = 2400000.0f;
+    forkInfo->jsonDir = "/tmp/piaware";
+    *forkInfoOut = forkInfo;
+    return 0;
+}
+
+extern char **environ;
+
+static int __lib1090Dump1090ForkMain(struct dump1090Fork_t *forkInfo) {
+    //snprintf(forkInfo->scratch, sizeof(forkInfo->scratch), "%d", (int)forkInfo->sample_rate);
+
+    int argc = 0;
+    const char *argv[1024];
+    argv[argc++] = "dump1090";
+    argv[argc++] = "--device-type";
+    argv[argc++] = "ifile";
+    argv[argc++] = "--ifile";
+    argv[argc++] = "-";
+    argv[argc++] = "--iformat";
+    argv[argc++] = "SC16";
+    //argv[argc++] = "--samplerate";
+    //argv[argc++] = forkInfo->scratch;
+    //argv[argc++] = "--throttle";
+    argv[argc++] = "--gain";
+    argv[argc++] = "-10";
+    //argv[argc++] = "--debug";
+    argv[argc++] = "--net";
+    argv[argc++] = "--net-bo-port";
+    argv[argc++] = "30005";
+    argv[argc++] = "--net-ri-port";
+    argv[argc++] = "0";
+    argv[argc++] = "--net-ro-port";
+    argv[argc++] = "30002";
+    argv[argc++] = "--net-sbs-port";
+    argv[argc++] = "30003";
+    argv[argc++] = "--net-bi-port";
+    argv[argc++] = "30004,30104";
+    argv[argc++] = "--net-ro-size";
+    argv[argc++] = "1000";
+    argv[argc++] = "--net-heartbeat";
+    argv[argc++] = "60";
+    argv[argc++] = "--net-ro-interval";
+    argv[argc++] = "1";
+    argv[argc++] = "--modeac";
+    argv[argc++] = "--dcfilter";
+    argv[argc++] = "--net-verbatim";
+    //argv[argc++] = "--forward-mlat";
+    if (forkInfo->userLat != NULL) {
+        argv[argc++] = "--lat";
+        argv[argc++] = forkInfo->userLat;
     }
-    if (lib1090ConfigOut != NULL) {
-        *lib1090ConfigOut = &lib1090Config;
+    if (forkInfo->userLon != NULL) {
+        argv[argc++] = "--lon";
+        argv[argc++] = forkInfo->userLon;
     }
+    argv[argc++] = "--aggressive";
+    //argv[argc++] = "--quiet";
+    if (forkInfo->jsonDir != NULL) {
+        argv[argc++] = "--write-json";
+        argv[argc++] = forkInfo->jsonDir;
+    }
+    argv[argc++] = "--json-location-accuracy";
+    argv[argc++] = "1";
+    argv[argc] = NULL;
+
+    int res = dup2(forkInfo->pipedes[0], fileno(stdin));
+    if (res == -1) {
+        fprintf(stderr, "dup2 returned errno %d [%s]\n", errno, strerror(errno));
+        return errno;
+    }
+    close(forkInfo->pipedes[0]);
+    res = execve("/usr/local/bin/dump1090", (char*const*)argv, environ);
+    //res = dump1090main(argc, (char**)argv);
+    //if (res != 0) {
+        fprintf(stderr, "dump1090main returned %d\n", res);
+    //}
+    return res;
+}
+
+//static void __dump1090ForkSignalHandler(int dummy) {
+//    MODES_NOTUSED(dummy);
+//    lib1090KillDump1090Fork();
+//}
+
+int lib1090ForkDump1090(struct dump1090Fork_t *forkInfo) {
+    if (forkInfo->childPid != 0) {
+        return -1;
+    }
+
+    int err = pipe(forkInfo->pipedes);
+    if (err != 0) {
+        switch (err) {
+                //More than {OPEN_MAX} minus two file descriptors are already in use by this process.
+            case EMFILE:
+                // The number of simultaneously open files in the system would exceed a system-imposed limit.
+            case ENFILE:
+            default:
+                return err;
+                break;
+        }
+    }
+    //forkInfo->pipedes[1] = open("/tmp/fifo", O_WRONLY|O_CREAT|O_TRUNC);
+    //forkInfo->pipedes[0] = open("/tmp/fifo", O_RDONLY);
+
+    forkInfo->childPid = fork();
+    if (forkInfo->childPid > 0) { // parent
+    //    signal(SIGINT, __dump1090ForkSignalHandler);
+    //    signal(SIGTERM, __dump1090ForkSignalHandler);
+        //close(forkInfo->pipedes[0]);
+        return 0;
+    } else if (forkInfo->childPid == 0) { // child
+        return __lib1090Dump1090ForkMain(forkInfo);
+    } else { // lib1090Config.childPid < 0
+        fprintf(stderr, "fork failed %d [%s]\n", errno, strerror(errno));
+        return errno;
+    }
+}
+
+int lib1090KillDump1090(struct dump1090Fork_t *forkInfo) {
+    if (forkInfo->childPid == 0) {
+        return 0;
+    }
+    kill(forkInfo->childPid, SIGINT);
+    int wstatus;
+    pid_t pid = waitpid(forkInfo->childPid, &wstatus, 0);
+    if (pid != forkInfo->childPid) {
+        // ????
+    }
+    forkInfo->childPid = 0;
+    close(forkInfo->pipedes[0]);
+    close(forkInfo->pipedes[1]);
+    return wstatus;
+}
+
+int lib1090FreeDump1090(struct dump1090Fork_t **pForkInfo) {
+    struct dump1090Fork_t *forkInfo = *pForkInfo;
+    if (forkInfo == NULL) {
+        return -1;
+    }
+    if (forkInfo->childPid != 0) { // child running
+        return -2;
+    }
+
+    free(forkInfo);
+    *pForkInfo = NULL;
+    return 0;
 }

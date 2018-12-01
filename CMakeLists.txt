@@ -19,10 +19,13 @@ cmake_minimum_required(VERSION 3.5.1)
 
 project(lib1090)
 
-include_directories( /usr/include/libusb-1.0 )
+include_directories(
+	/usr/include/libusb-1.0
+	/usr/local/include
+)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -std=c11 -Wall -Werror")
-set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -DENABLE_LIMESDR -std=c11 -Wall -Werror")
+set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c sdr_lime.c)
 
 if(APPLE)
   #for darwin build
@@ -76,6 +79,7 @@ target_link_libraries(
 
 	rtlsdr
 	bladeRF
+	LimeSuite
 	m
 	ncurses
 	usb-1.0
@@ -85,7 +89,7 @@ target_link_libraries(
 
 set_target_properties(
 	1090 PROPERTIES
-	VERSION 0.1.1
+	VERSION 0.2.0
 	SOVERSION 0
 )
 
