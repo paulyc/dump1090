@@ -31,7 +31,8 @@ static struct {
     unsigned lpf_bandwidth;
 
     lms_device_t *device;
-    lms_info_str_t device_list[10];
+    lms_info_str_t device_list[256];
+    int device_list_size;
 
     lms_stream_t stream;
     lms_stream_status_t stream_status;
@@ -43,10 +44,12 @@ static struct {
 void limesdrInitConfig()
 {
     LimeSDR.decimation = 1;
-    LimeSDR.lpf_bandwidth = 1750000;
+    LimeSDR.lpf_bandwidth = 2500000;
     LimeSDR.device = NULL;
     LimeSDR.converter = NULL;
     LimeSDR.converter_state = NULL;
+    memset(&LimeSDR.stream, '\0', sizeof(lms_stream_t));
+    memset(&LimeSDR.stream_status, '\0', sizeof(lms_stream_status_t));
 }
 
 void limesdrShowHelp()
@@ -83,23 +86,29 @@ bool limesdrHandleOption(int argc, char **argv, int *jptr)
 
 bool limesdrOpen()
 {
+    LimeSDR.device_list_size = LMS_GetDeviceList(LimeSDR.device_list);
     if (LimeSDR.device != NULL) {
         return false;
     }
-    int count = LMS_GetDeviceList(LimeSDR.device_list), status;
-    if (count == -1) {
-        fprintf(stderr, "Some error calling LMS_GetDeviceList() in limesdrOpen(): %s\n", LMS_GetLastErrorMessage());
+    int status;
+    int devIndex = 0;
+    status = LMS_Open(&LimeSDR.device, LimeSDR.device_list[devIndex], NULL);
+    if (status == -1) {
+        fprintf(stderr, "Some error calling LMS_Open() in limesdrOpen(): %s\n", LMS_GetLastErrorMessage());
         return false;
-    } else if (count == 0) {
-        fprintf(stderr, "No devices found by LMS_GetDeviceList() in limesdrOpen()\n");
-        return false;
-    } else {
-        int devIndex = 0;
-        status = LMS_Open(&LimeSDR.device, LimeSDR.device_list[devIndex], NULL);
-        if (status == -1) {
-            fprintf(stderr, "Some error calling LMS_Open() in limesdrOpen(): %s\n", LMS_GetLastErrorMessage());
-            return false;
-        }
+    }
+    if ((status = LMS_Init(LimeSDR.device)) < 0) {
+        fprintf(stderr, "LMS_Init failed: %s\n", LMS_GetLastErrorMessage());
+        goto error;
+    }
+    if ((status = LMS_EnableChannel(LimeSDR.device, LMS_CH_RX, 0, 1)) < 0) {
+        fprintf(stderr, "LMS_Init failed: %s\n", LMS_GetLastErrorMessage());
+        goto error;
+    }
+    /* disable tx channel, just in case */
+    if ((status = LMS_EnableChannel(LimeSDR.device, LMS_CH_TX, 0, 0)) < 0) {
+        fprintf(stderr, "LMS_EnableChannel(TX) failed: %s\n", LMS_GetLastErrorMessage());
+        goto error;
     }
     if ((status = LMS_SetSampleRate(LimeSDR.device, Modes.sample_rate, LimeSDR.decimation)) < 0) {
         fprintf(stderr, "LMS_SetSampleRate failed: %s\n", LMS_GetLastErrorMessage());
@@ -127,13 +136,7 @@ bool limesdrOpen()
             goto error;
         }
     }
-
-    /* disable tx channel, just in case */
-    if ((status = LMS_EnableChannel(LimeSDR.device, LMS_CH_TX, 0, 0)) < 0) {
-        fprintf(stderr, "LMS_EnableChannel(TX) failed: %s\n", LMS_GetLastErrorMessage());
-        goto error;
-    }
-
+    // LMS_SetNormalizedGain
     if ((status = LMS_SetGaindB(LimeSDR.device, LMS_CH_RX, 0, Modes.gain)) < 0) {
         fprintf(stderr, "LMS_SetGaindB(RX) failed: %s\n", LMS_GetLastErrorMessage());
         goto error;
@@ -179,6 +182,12 @@ void limesdrRun()
     }
 
     int status;
+
+    LimeSDR.stream.channel = 0; //channel number
+    LimeSDR.stream.fifoSize = 1024 * 1024; //fifo size in samples
+    LimeSDR.stream.throughputVsLatency = 0.5; //some middle ground
+    LimeSDR.stream.isTx = false; //RX channel
+    LimeSDR.stream.dataFmt = LMS_FMT_I16; //16-bit integers
     if ((status = LMS_SetupStream(LimeSDR.device, &LimeSDR.stream)) < 0) {
         fprintf(stderr, "LMS_SetupStream failed: %s\n", LMS_GetLastErrorMessage());
         return;
@@ -276,7 +285,7 @@ void limesdrRun()
     pthread_mutex_unlock(&Modes.data_mutex);
 
     LMS_StopStream(&LimeSDR.stream);
-    LMS_DestroyStream(LimeSDR.device, &LimeSDR.stream);
+
 }
 
 void limesdrClose()
@@ -288,7 +297,11 @@ void limesdrClose()
     }
 
     if (LimeSDR.device != NULL) {
-        int res = LMS_Close(LimeSDR.device);
+        int res = LMS_DestroyStream(LimeSDR.device, &LimeSDR.stream);
+        if (res == -1) {
+            fprintf(stderr, "Some error calling LMS_DestroyStream() in limesdrClose()\n");
+        }
+        res = LMS_Close(LimeSDR.device);
         if (res == -1) {
             fprintf(stderr, "Some error calling LMS_Close() in limesdrClose()\n");
         }

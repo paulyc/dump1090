@@ -769,7 +769,7 @@ int dump1090main(int argc, char **argv) {
     modesInitConfig();
 
     // signal handlers:
-    install_signal_handlers(false);
+    install_signal_handlers(true);
 
     //FILE *output = fopen("/tmp/dump1090.out", "w");
     //FILE *err = fopen("/tmp/dump1090.err", "w");
