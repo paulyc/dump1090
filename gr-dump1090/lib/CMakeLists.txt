@@ -85,5 +85,3 @@ foreach(qa_file ${test_dump1090_sources})
         ${CMAKE_CURRENT_SOURCE_DIR}/${qa_file}
     )
 endforeach(qa_file)
-
-    ${CMAKE_CURRENT_SOURCE_DIR}/qa_mode_s_decoder.cc    ${CMAKE_CURRENT_SOURCE_DIR}/qa_mode_ac_decoder.cc    ${CMAKE_CURRENT_SOURCE_DIR}/qa_iq_converter.cc    ${CMAKE_CURRENT_SOURCE_DIR}/qa_crc_validator.cc    ${CMAKE_CURRENT_SOURCE_DIR}/qa_demod_ask.cc
