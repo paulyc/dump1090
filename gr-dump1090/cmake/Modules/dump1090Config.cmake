@@ -1,0 +1,30 @@
+INCLUDE(FindPkgConfig)
+PKG_CHECK_MODULES(PC_DUMP1090 dump1090)
+
+FIND_PATH(
+    DUMP1090_INCLUDE_DIRS
+    NAMES dump1090/api.h
+    HINTS $ENV{DUMP1090_DIR}/include
+        ${PC_DUMP1090_INCLUDEDIR}
+    PATHS ${CMAKE_INSTALL_PREFIX}/include
+          /usr/local/include
+          /usr/include
+)
+
+FIND_LIBRARY(
+    DUMP1090_LIBRARIES
+    NAMES gnuradio-dump1090
+    HINTS $ENV{DUMP1090_DIR}/lib
+        ${PC_DUMP1090_LIBDIR}
+    PATHS ${CMAKE_INSTALL_PREFIX}/lib
+          ${CMAKE_INSTALL_PREFIX}/lib64
+          /usr/local/lib
+          /usr/local/lib64
+          /usr/lib
+          /usr/lib64
+)
+
+INCLUDE(FindPackageHandleStandardArgs)
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(DUMP1090 DEFAULT_MSG DUMP1090_LIBRARIES DUMP1090_INCLUDE_DIRS)
+MARK_AS_ADVANCED(DUMP1090_LIBRARIES DUMP1090_INCLUDE_DIRS)
+
