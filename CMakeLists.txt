@@ -22,6 +22,7 @@ project(lib1090)
 include_directories(
 	/usr/include/libusb-1.0
 	/usr/local/include
+	${PROJECT_SOURCE_DIR}
 )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -DENABLE_LIMESDR -std=c11 -Wall -Werror")
