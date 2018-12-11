@@ -63,7 +63,7 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13.3-paulyc"
+# define MODES_DUMP1090_VERSION     "v1.14-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
@@ -188,6 +188,7 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp);
 // ============================= #defines ===============================
 
 #define HAVE_RTL_BIAST             1
+#define MODES_SAMPLE_RATE          2400000
 #define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -218,11 +219,11 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp);
 #define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OS_PREAMBLE_SAMPLES  (20)
-#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
 #define MODES_OS_LONG_MSG_SAMPLES  (268)
 #define MODES_OS_SHORT_MSG_SAMPLES (135)
-#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OUT_BUF_SIZE         (1500)
 #define MODES_OUT_FLUSH_SIZE       (MODES_OUT_BUF_SIZE - 256)
@@ -644,9 +645,10 @@ void icaoFilterExpire();
 
 struct converter_state;
 typedef enum { INPUT_UC8=0, INPUT_SC16, INPUT_SC16Q11 } input_format_t;
+typedef float mag_data_t;
 
 typedef void (*iq_convert_fn)(void *iq_data,
-                              uint16_t *mag_data,
+                              mag_data_t *mag_data,
                               unsigned nsamples,
                               struct converter_state *state,
                               double *out_mean_level,
@@ -678,7 +680,7 @@ typedef enum {
 
 // Structure representing one magnitude buffer
 struct mag_buf {
-    uint16_t       *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
+    mag_data_t      *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
     unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + Modes.trailing_samples.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
@@ -700,7 +702,7 @@ struct modes_t {                             // Internal state
     struct timespec reader_cpu_accumulator;               // CPU time used by the reader thread, copied out and reset by the main thread under the mutex
 
     unsigned        trailing_samples;                     // extra trailing samples in magnitude buffers
-    double          sample_rate;                          // actual sample rate in use (in hz)
+    //double          sample_rate;                          // actual sample rate in use (in hz)
 
     uint16_t       *log10lut;        // Magnitude -> log10 lookup table
     int             exit;            // Exit from the main loop when true
@@ -1388,7 +1390,7 @@ struct lib1090Config_t {
     const char *beastOutPipeName;
     int pipefd;
     pid_t childPid;
-    int sample_rate;
+    double sample_rate;
     const char *jsonDir;
 };
 
@@ -1411,7 +1413,7 @@ struct dump1090Fork_t {
     const char *userLon;
     int pipedes[2];
     pid_t childPid;
-    float sample_rate;
+    double sample_rate;
     const char *jsonDir;
     char scratch[128];
 };

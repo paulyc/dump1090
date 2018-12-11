@@ -22,9 +22,10 @@
 
 struct converter_state;
 typedef enum { INPUT_UC8=0, INPUT_SC16, INPUT_SC16Q11 } input_format_t;
+typedef float mag_data_t;
 
 typedef void (*iq_convert_fn)(void *iq_data,
-                              uint16_t *mag_data,
+                              mag_data_t *mag_data,
                               unsigned nsamples,
                               struct converter_state *state,
                               double *out_mean_level,

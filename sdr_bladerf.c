@@ -219,7 +219,7 @@ bool bladeRFOpen()
         goto error;
     }
 
-    if ((status = bladerf_set_sample_rate(BladeRF.device, BLADERF_MODULE_RX, Modes.sample_rate * BladeRF.decimation, NULL)) < 0) {
+    if ((status = bladerf_set_sample_rate(BladeRF.device, BLADERF_MODULE_RX, MODES_SAMPLE_RATE * BladeRF.decimation, NULL)) < 0) {
         fprintf(stderr, "bladerf_set_sample_rate failed: %s\n", bladerf_strerror(status));
         goto error;
     }
@@ -273,7 +273,7 @@ bool bladeRFOpen()
     show_config();
 
     BladeRF.converter = init_converter(INPUT_SC16Q11,
-                                       Modes.sample_rate,
+                                       MODES_SAMPLE_RATE,
                                        Modes.dc_filter,
                                        &BladeRF.converter_state);
     if (!BladeRF.converter) {
@@ -336,9 +336,9 @@ static void *handle_bladerf_samples(struct bladerf *dev,
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {
-        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
     } else {
-        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
     }
 
     // start handling metadata blocks
@@ -394,7 +394,7 @@ static void *handle_bladerf_samples(struct bladerf *dev,
 
         if (!blocks_processed) {
             // Compute the sample timestamp for the start of the block
-            outbuf->sampleTimestamp = nextTimestamp * 12e6 / Modes.sample_rate / BladeRF.decimation;
+            outbuf->sampleTimestamp = nextTimestamp * 12e6 / MODES_SAMPLE_RATE / BladeRF.decimation;
         }
 
         // Convert a block of data
@@ -412,7 +412,7 @@ static void *handle_bladerf_samples(struct bladerf *dev,
 
     if (blocks_processed) {
         // Get the approx system time for the start of this block
-        unsigned block_duration = 1e3 * outbuf->length / Modes.sample_rate;
+        unsigned block_duration = 1e3 * outbuf->length / MODES_SAMPLE_RATE;
         outbuf->sysTimestamp = entryTimestamp - block_duration;
 
         outbuf->mean_level /= blocks_processed;
@@ -462,7 +462,7 @@ void bladeRFRun()
         goto out;
     }
 
-    unsigned ms_per_transfer = 1000 * MODES_MAG_BUF_SAMPLES / Modes.sample_rate;
+    unsigned ms_per_transfer = 1000 * MODES_MAG_BUF_SAMPLES / MODES_SAMPLE_RATE;
     if ((status = bladerf_set_stream_timeout(BladeRF.device, BLADERF_MODULE_RX, ms_per_transfer * (transfers + 2))) < 0) {
         fprintf(stderr, "bladerf_set_stream_timeout() failed: %s\n", bladerf_strerror(status));
         goto out;

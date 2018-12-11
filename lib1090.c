@@ -105,7 +105,6 @@ static int __lib1090InitThread() {
     Modes.net_input_beast_ports = NULL;
     Modes.net_output_beast_ports = NULL;
     Modes.net_verbatim = 0;
-    //Modes.sample_rate = 4000000.0;
 
     modesInit();
     modesInitNet();
@@ -332,7 +331,7 @@ ssize_t lib1090FormatBeast(struct modesMessage *mm, uint8_t *beastBufferOut, siz
 int lib1090InitDump1090(struct dump1090Fork_t **forkInfoOut) {
     struct dump1090Fork_t *forkInfo = malloc(sizeof(struct dump1090Fork_t));
     memset(forkInfo, '\0', sizeof(struct dump1090Fork_t));
-    forkInfo->sample_rate = 2400000.0f;
+    forkInfo->sample_rate = 2.4e6;
     forkInfo->jsonDir = "/tmp/piaware";
     *forkInfoOut = forkInfo;
     return 0;
