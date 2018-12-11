@@ -338,13 +338,16 @@ static void *handle_bladerf_samples(struct bladerf *dev,
     if (outbuf->dropped == 0) {
         memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
     } else {
-        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
+        //memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
+        for (int i = 0; i < Modes.trailing_samples; ++i) {
+            outbuf->data[i] = 0.0;
+        }
     }
 
     // start handling metadata blocks
     outbuf->dropped = 0;
     outbuf->length = 0;
-    outbuf->mean_level = outbuf->mean_power = 0;
+    outbuf->mean_level = outbuf->mean_power = 0.0;
 
     unsigned blocks_processed = 0;
     unsigned samples_per_block = (BladeRF.block_size - 16) / 4;

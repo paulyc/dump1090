@@ -273,6 +273,8 @@ typedef enum {
 #define MAX_AMPLITUDE 65535.0
 #define MAX_POWER (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
+typedef double internal_float_t;
+
 // Include subheaders after all the #defines are in place
 
 #include "util.h"
@@ -299,8 +301,8 @@ struct mag_buf {
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
-    double          mean_level;      // Mean of normalized (0..1) signal level
-    double          mean_power;      // Mean of normalized (0..1) power level
+    internal_float_t mean_level;      // Mean of normalized (0..1) signal level
+    internal_float_t mean_power;      // Mean of normalized (0..1) power level
 };
 
 // Program global state

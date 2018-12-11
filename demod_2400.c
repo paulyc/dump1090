@@ -74,13 +74,13 @@ void demodulate2400(struct mag_buf *mag)
     const mag_data_t *const m = mag->data;
     const uint32_t mlen = mag->length;
 
-    double sum_signal_power = 0.0;
+    internal_float_t sum_signal_power = 0.0;
 
     msg = msg1;
 
     for (uint32_t j = 0; j < mlen; j++) {
         const mag_data_t *preamble = &m[j];
-        double high, base_signal, base_noise;
+        internal_float_t high, base_signal, base_noise;
         int try_phase;
         int msglen;
 
@@ -329,7 +329,7 @@ void demodulate2400(struct mag_buf *mag)
 
         // measure signal power
         {
-            double signal_power = 0.0;
+            internal_float_t signal_power = 0.0;
             int signal_len = msglen*12/5;
 
             for (int k = 0; k < signal_len; ++k) {
@@ -474,9 +474,9 @@ void demodulate2400AC(struct mag_buf *mag)
 
     memset(&mm, 0, sizeof(mm));
 
-    const double noise_stddev = sqrt(mag->mean_power - mag->mean_level * mag->mean_level); // Var(X) = E[(X-E[X])^2] = E[X^2] - (E[X])^2
-    const double noise_level = mag->mean_power + noise_stddev;
-    const double noise_level_plus_6dB = noise_level * 2.0;
+    const internal_float_t noise_stddev = sqrt(mag->mean_power - mag->mean_level * mag->mean_level); // Var(X) = E[(X-E[X])^2] = E[X^2] - (E[X])^2
+    const internal_float_t noise_level = mag->mean_power + noise_stddev;
+    const internal_float_t noise_level_plus_6dB = noise_level * 2.0;
 
     for (uint32_t f1_sample = 1; f1_sample < mlen; ++f1_sample) {
         // Mode A/C messages should match this bit sequence:
@@ -532,7 +532,7 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f1_sample+2] > m[f1_sample+0] || m[f1_sample+2] > m[f1_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        const double f1_level = (m[f1_sample+0] + m[f1_sample+1]) * 0.5;
+        const internal_float_t f1_level = (m[f1_sample+0] + m[f1_sample+1]) * 0.5;
 
         if (noise_level_plus_6dB > f1_level) {
             // require 6dB above noise
@@ -542,9 +542,9 @@ void demodulate2400AC(struct mag_buf *mag)
         // estimate initial clock phase based on the amount of power
         // that ended up in the second sample
 
-        const double f1a_power = m[f1_sample] * m[f1_sample];
-        const double f1b_power = m[f1_sample+1] * m[f1_sample+1];
-        const double fraction = f1b_power / (f1a_power + f1b_power);
+        const internal_float_t f1a_power = m[f1_sample] * m[f1_sample];
+        const internal_float_t f1b_power = m[f1_sample+1] * m[f1_sample+1];
+        const internal_float_t fraction = f1b_power / (f1a_power + f1b_power);
         const long f1_clock = lround(cyclesPerSample * (f1_sample + fraction * fraction));
 
         // same again for F2
@@ -559,18 +559,18 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f2_sample+2] > m[f2_sample+0] || m[f2_sample+2] > m[f2_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        double f2_level = (m[f2_sample+0] + m[f2_sample+1]) * 0.5;
+        internal_float_t f2_level = (m[f2_sample+0] + m[f2_sample+1]) * 0.5;
 
         if (noise_level_plus_6dB > f2_level) {
             // require 6dB above noise
             continue;
         }
 
-        const double f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
+        const internal_float_t f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
 
-        const double midpoint = sqrt(noise_level * f1f2_level); // geometric mean of the two levels
-        const double signal_threshold = midpoint * M_SQRT2; // +3dB
-        const double noise_threshold = midpoint * M_SQRT1_2;  // -3dB
+        const internal_float_t midpoint = sqrt(noise_level * f1f2_level); // geometric mean of the two levels
+        const internal_float_t signal_threshold = midpoint * M_SQRT2; // +3dB
+        const internal_float_t noise_threshold = midpoint * M_SQRT1_2;  // -3dB
 
         // Looks like a real signal. Demodulate all the bits.
         long uncertain_bits = 0;

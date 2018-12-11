@@ -361,6 +361,8 @@ typedef enum {
 #define MAX_AMPLITUDE 65535.0
 #define MAX_POWER (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
+typedef double internal_float_t;
+
 // Include subheaders after all the #defines are in place
 #define DUMP1090_UTIL_H
 
@@ -543,15 +545,15 @@ struct stats {
     struct timespec background_cpu;
 
     // noise floor:
-    double noise_power_sum;
+    internal_float_t noise_power_sum;
     uint64_t noise_power_count;
 
     // mean signal power:
-    double signal_power_sum;
+    internal_float_t signal_power_sum;
     uint64_t signal_power_count;
 
     // peak signal power seen
-    double peak_signal_power;
+    internal_float_t peak_signal_power;
 
     // number of signals with power > -3dBFS
     uint32_t strong_signal_count;
@@ -685,8 +687,8 @@ struct mag_buf {
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
-    double          mean_level;      // Mean of normalized (0..1) signal level
-    double          mean_power;      // Mean of normalized (0..1) power level
+    internal_float_t mean_level;      // Mean of normalized (0..1) signal level
+    internal_float_t mean_power;      // Mean of normalized (0..1) power level
 };
 
 // Program global state
