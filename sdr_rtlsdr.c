@@ -333,7 +333,9 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     if (outbuf->dropped == 0) {
         memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
     } else {
-        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
+        for (int i = 0; i < Modes.trailing_samples; ++i) {
+            outbuf->data[i] = 0.0;
+        }
     }
 
     // Convert the new data

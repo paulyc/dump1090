@@ -26,11 +26,6 @@ struct converter_state {
     double z1_Q;
 };
 
-static const double shortMax = (double)SHRT_MAX;
-//static const double ushortMax = (double)USHRT_MAX;
-static const double inverseShortMax = 1.0 / shortMax;
-//static const double inverseUShortMax = 1.0 / ushortMax;
-
 static double *uc8_lookup;
 static bool init_uc8_lookup()
 {
@@ -43,12 +38,12 @@ static bool init_uc8_lookup()
         return false;
     }
 
-    for (int i = 0; i <= 255; i++) {
-        for (int q = 0; q <= 255; q++) {
-            const double fI = (i - 127.5) / 127.5;
-            const double fQ = (q - 127.5) / 127.5;
+    for (int I = 0; I <= 255; I++) {
+        for (int Q = 0; Q <= 255; Q++) {
+            const double fI = I > 127 ? (I - 127) / 128.0 : (128 - I) / -128.0;
+            const double fQ = Q > 127 ? (Q - 127) / 128.0 : (128 - Q) / -128.0;
             const double magsq = fI * fI + fQ * fQ;
-            uc8_lookup[le16toh((i*256)+q)] = sqrt(magsq); // magsq > 1.0 ? 1.0 : magsq;
+            uc8_lookup[le16toh((I*256)+Q)] = sqrt(magsq); // magsq > 1.0 ? 1.0 : magsq;
         }
     }
 
@@ -123,8 +118,8 @@ static void convert_uc8_generic(void *iq_data,
     for (unsigned i = 0; i < nsamples; ++i) {
         const uint8_t I = *in++;
         const uint8_t Q = *in++;
-        double fI = (I - 127.5) / 127.5;
-        double fQ = (Q - 127.5) / 127.5;
+        double fI = I > 127 ? (I - 127) / 128.0 : (128 - I) / -128.0;
+        double fQ = Q > 127 ? (Q - 127) / 128.0 : (128 - Q) / -128.0;
 
         // DC block
         z1_I = fI * dc_a + z1_I * dc_b;
@@ -172,8 +167,8 @@ static void convert_sc16_generic(void *iq_data,
     for (unsigned i = 0; i < nsamples; ++i) {
         const uint16_t I = (int16_t)le16toh(*in++);
         const uint16_t Q = (int16_t)le16toh(*in++);
-        double fI = I * inverseShortMax;
-        double fQ = Q * inverseShortMax;
+        double fI = I / (double)SHRT_MAX;
+        double fQ = Q / (double)SHRT_MAX;
 
         // DC block
         z1_I = fI * dc_a + z1_I * dc_b;
@@ -218,8 +213,8 @@ static void convert_sc16_nodc(void *iq_data,
     for (unsigned i = 0; i < nsamples; ++i) {
         const int16_t I = (int16_t)le16toh(*in++);
         const int16_t Q = (int16_t)le16toh(*in++);
-        const double fI = I * inverseShortMax;
-        const double fQ = Q * inverseShortMax;
+        const double fI = I / (double)SHRT_MAX;
+        const double fQ = Q / (double)SHRT_MAX;
 
         double magsq = fI * fI + fQ * fQ;
         //if (magsq > 1.0)
@@ -275,7 +270,7 @@ static bool init_sc16q11_lookup()
             const double mag = sqrt(magsq);
 
             int index = ((i >> LOSE_BITS) << USE_BITS) | (q >> LOSE_BITS);
-            sc16q11_lookup[index] = (uint16_t)lround(mag * ushortMax);
+            sc16q11_lookup[index] = (uint16_t)lround(mag * USHRT_MAX);
         }
     }
 
@@ -298,7 +293,7 @@ static void convert_sc16q11_table(void *iq_data,
     for (unsigned i = 0; i < nsamples; ++i) {
         const uint16_t I = abs((int16_t)le16toh(*in++)) & 2047;
         const uint16_t Q = abs((int16_t)le16toh(*in++)) & 2047;
-        const double mag = sc16q11_lookup[((I >> LOSE_BITS) << USE_BITS) | (Q >> LOSE_BITS)] * inverseUShortMax);
+        const double mag = sc16q11_lookup[((I >> LOSE_BITS) << USE_BITS) | (Q >> LOSE_BITS)] / (double)USHRT_MAX);
         *mag_data++ = mag;
         sum_level += mag;
         sum_power += mag * mag;
