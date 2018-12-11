@@ -225,6 +225,8 @@ int clock_gettime(clockid_t clk_id, struct timespec *tp);
 //#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
 //#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
+#define MODES_TRAILING_SAMPLES ((MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * MODES_SAMPLE_RATE / 1000000)
+
 #define MODES_OUT_BUF_SIZE         (1500)
 #define MODES_OUT_FLUSH_SIZE       (MODES_OUT_BUF_SIZE - 256)
 #define MODES_OUT_FLUSH_INTERVAL   (60000)
@@ -682,8 +684,8 @@ typedef enum {
 
 // Structure representing one magnitude buffer
 struct mag_buf {
-    mag_data_t      *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
-    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + Modes.trailing_samples.
+    mag_data_t      *data;            // Magnitude data. Starts with MODES_TRAILING_SAMPLES worth of overlap from the previous block. TODO change to array of size MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES
+    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + MODES_TRAILING_SAMPLES.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
@@ -703,7 +705,6 @@ struct modes_t {                             // Internal state
     unsigned        first_filled_buffer;                  // Entry in mag_buffers that has valid data and will be demodulated next. If equal to next_free_buffer, there is no unprocessed data.
     struct timespec reader_cpu_accumulator;               // CPU time used by the reader thread, copied out and reset by the main thread under the mutex
 
-    unsigned        trailing_samples;                     // extra trailing samples in magnitude buffers
     //double          sample_rate;                          // actual sample rate in use (in hz)
 
     uint16_t       *log10lut;        // Magnitude -> log10 lookup table

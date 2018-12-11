@@ -177,8 +177,6 @@ void modesInit(void) {
     pthread_cond_init(&Modes.data_cond,NULL);
 
     // Allocate the various buffers used by Modes
-    Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * MODES_SAMPLE_RATE;
-
     if ( ((Modes.log10lut   = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) )
     {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
@@ -186,7 +184,7 @@ void modesInit(void) {
     }
 
     for (i = 0; i < MODES_MAG_BUFFERS; ++i) {
-        if ( (Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES+Modes.trailing_samples, sizeof(mag_data_t))) == NULL ) {
+        if ( (Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES, sizeof(mag_data_t))) == NULL ) {
             fprintf(stderr, "Out of memory allocating magnitude buffer.\n");
             exit(1);
         }

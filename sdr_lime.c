@@ -243,9 +243,9 @@ void limesdrRun()
 
         // Copy trailing data from last block (or reset if not valid)
         if (outbuf->dropped == 0) {
-            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
+            memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         } else {
-            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
+            memset(outbuf->data, 0, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         }
 
         // start handling metadata blocks
@@ -258,7 +258,7 @@ void limesdrRun()
 
         // Convert a block of data
         double mean_level, mean_power;
-        LimeSDR.converter(samples, &outbuf->data[Modes.trailing_samples + outbuf->length], nSamples, LimeSDR.converter_state, &mean_level, &mean_power);
+        LimeSDR.converter(samples, &outbuf->data[MODES_TRAILING_SAMPLES + outbuf->length], nSamples, LimeSDR.converter_state, &mean_level, &mean_power);
         outbuf->length += nSamples;
         outbuf->mean_level += mean_level;
         outbuf->mean_power += mean_power;

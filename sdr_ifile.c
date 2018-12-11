@@ -211,10 +211,10 @@ void ifileRun()
         sampleCounter += MODES_MAG_BUF_SAMPLES;
 
         // Copy trailing data from last block (or reset if not valid)
-        if (lastbuf->length >= Modes.trailing_samples) {
-            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
+        if (lastbuf->length >= MODES_TRAILING_SAMPLES) {
+            memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         } else {
-            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
+            memset(outbuf->data, 0, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         }
 
         // Get the system time for the start of this block
@@ -242,7 +242,7 @@ void ifileRun()
         slen = outbuf->length = MODES_MAG_BUF_SAMPLES - toread / ifile.bytes_per_sample;
 
         // Convert the new data
-        ifile.converter(ifile.readbuf, &outbuf->data[Modes.trailing_samples], slen, ifile.converter_state, &outbuf->mean_level, &outbuf->mean_power);
+        ifile.converter(ifile.readbuf, &outbuf->data[MODES_TRAILING_SAMPLES], slen, ifile.converter_state, &outbuf->mean_level, &outbuf->mean_power);
 
         if (ifile.throttle || Modes.interactive) {
             // Wait until we are allowed to release this buffer to the main thread

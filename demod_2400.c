@@ -551,7 +551,7 @@ void demodulate2400AC(struct mag_buf *mag)
         // F2 is 20.3us / 14 bit periods after F1
         const long f2_clock = f1_clock + (cyclesPerModeACBitPeriod * 14L);
         const long f2_sample = f2_clock / cyclesPerSample;
-        assert(f2_sample < mlen + Modes.trailing_samples);
+        assert(f2_sample < mlen + MODES_TRAILING_SAMPLES);
 
         if (!(m[f2_sample-1] < m[f2_sample+0]))
             continue;

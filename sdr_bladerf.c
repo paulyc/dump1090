@@ -336,10 +336,10 @@ static void *handle_bladerf_samples(struct bladerf *dev,
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {
-        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
+        memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
     } else {
-        //memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
-        for (int i = 0; i < Modes.trailing_samples; ++i) {
+        //memset(outbuf->data, 0, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
+        for (int i = 0; i < MODES_TRAILING_SAMPLES; ++i) {
             outbuf->data[i] = 0.0;
         }
     }
@@ -402,7 +402,7 @@ static void *handle_bladerf_samples(struct bladerf *dev,
 
         // Convert a block of data
         double mean_level, mean_power;
-        BladeRF.converter(sample_data, &outbuf->data[Modes.trailing_samples + outbuf->length], samples_per_block, BladeRF.converter_state, &mean_level, &mean_power);
+        BladeRF.converter(sample_data, &outbuf->data[MODES_TRAILING_SAMPLES + outbuf->length], samples_per_block, BladeRF.converter_state, &mean_level, &mean_power);
         outbuf->length += samples_per_block;
         outbuf->mean_level += mean_level;
         outbuf->mean_power += mean_power;

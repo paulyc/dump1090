@@ -331,16 +331,16 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {
-        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
+        memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
     } else {
-        for (int i = 0; i < Modes.trailing_samples; ++i) {
+        for (int i = 0; i < MODES_TRAILING_SAMPLES; ++i) {
             outbuf->data[i] = 0.0;
         }
     }
 
     // Convert the new data
     outbuf->length = slen;
-    RTLSDR.converter(buf, &outbuf->data[Modes.trailing_samples], slen, RTLSDR.converter_state, &outbuf->mean_level, &outbuf->mean_power);
+    RTLSDR.converter(buf, &outbuf->data[MODES_TRAILING_SAMPLES], slen, RTLSDR.converter_state, &outbuf->mean_level, &outbuf->mean_power);
 
     // Push the new data to the demodulation thread
     pthread_mutex_lock(&Modes.data_mutex);
