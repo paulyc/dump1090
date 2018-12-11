@@ -42,20 +42,20 @@
 // nb: the correlation functions sum to zero, so we do not need to adjust for the DC offset in the input signal
 // (adding any constant value to all of m[0..3] does not change the result)
 
-static inline int slice_phase0(uint16_t *m) {
-    return 5 * m[0] - 3 * m[1] - 2 * m[2];
+static inline bool slice_phase0(const mag_data_t *const m) {
+    return (5.0 * m[0] - 3.0 * m[1] - 2.0 * m[2]) > 0.0;
 }
-static inline int slice_phase1(uint16_t *m) {
-    return 4 * m[0] - m[1] - 3 * m[2];
+static inline bool slice_phase1(const mag_data_t *const m) {
+    return (4.0 * m[0] - m[1] - 3.0 * m[2]) > 0.0;
 }
-static inline int slice_phase2(uint16_t *m) {
-    return 3 * m[0] + m[1] - 4 * m[2];
+static inline bool slice_phase2(const mag_data_t *const m) {
+    return (3.0 * m[0] + m[1] - 4.0 * m[2]) > 0.0;
 }
-static inline int slice_phase3(uint16_t *m) {
-    return 2 * m[0] + 3 * m[1] - 5 * m[2];
+static inline bool slice_phase3(const mag_data_t *const m) {
+    return (2.0 * m[0] + 3.0 * m[1] - 5.0 * m[2]) > 0.0;
 }
-static inline int slice_phase4(uint16_t *m) {
-    return m[0] + 5 * m[1] - 5 * m[2] - m[3];
+static inline bool slice_phase4(const mag_data_t *const m) {
+    return (m[0] + 5.0 * m[1] - 5.0 * m[2] - m[3]) > 0.0;
 }
 
 //
@@ -67,22 +67,20 @@ void demodulate2400(struct mag_buf *mag)
     static struct modesMessage zeroMessage;
     struct modesMessage mm;
     uint8_t msg1[MODES_LONG_MSG_BYTES], msg2[MODES_LONG_MSG_BYTES], *msg;
-    uint32_t j;
 
     uint8_t *bestmsg;
     int bestscore, bestphase;
 
-    uint16_t *m = mag->data;
-    uint32_t mlen = mag->length;
+    const mag_data_t *const m = mag->data;
+    const uint32_t mlen = mag->length;
 
-    uint64_t sum_scaled_signal_power = 0;
+    internal_float_t sum_signal_power = 0.0;
 
     msg = msg1;
 
-    for (j = 0; j < mlen; j++) {
-        uint16_t *preamble = &m[j];
-        int high;
-        uint32_t base_signal, base_noise;
+    for (uint32_t j = 0; j < mlen; j++) {
+        const mag_data_t *preamble = &m[j];
+        internal_float_t high, base_signal, base_noise;
         int try_phase;
         int msglen;
 
@@ -149,7 +147,7 @@ void demodulate2400(struct mag_buf *mag)
         }
 
         // Check for enough signal
-        if (base_signal * 2 < 3 * base_noise) // about 3.5dB SNR
+        if (base_signal * 2.0 < 3.0 * base_noise) // about 3.5dB SNR
             continue;
 
         // Check that the "quiet" bits 6,7,15,16,17 are actually quiet
@@ -169,7 +167,7 @@ void demodulate2400(struct mag_buf *mag)
         Modes.stats_current.demod_preambles++;
         bestmsg = NULL; bestscore = -2; bestphase = -1;
         for (try_phase = 4; try_phase <= 8; ++try_phase) {
-            uint16_t *pPtr;
+            const mag_data_t *pPtr;
             int phase, i, score, bytelen;
 
             // Decode all the next 112 bits, regardless of the actual message
@@ -185,14 +183,14 @@ void demodulate2400(struct mag_buf *mag)
                 switch (phase) {
                 case 0:
                     theByte =
-                        (slice_phase0(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase2(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase4(pPtr+4) > 0 ? 0x20 : 0) |
-                        (slice_phase1(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase3(pPtr+9) > 0 ? 0x08 : 0) |
-                        (slice_phase0(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase2(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase4(pPtr+16) > 0 ? 0x01 : 0);
+                        (slice_phase0(pPtr) ? 0x80 : 0) |
+                        (slice_phase2(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase4(pPtr+4) ? 0x20 : 0) |
+                        (slice_phase1(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase3(pPtr+9) ? 0x08 : 0) |
+                        (slice_phase0(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase2(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase4(pPtr+16) ? 0x01 : 0);
 
 
                     phase = 1;
@@ -201,14 +199,14 @@ void demodulate2400(struct mag_buf *mag)
 
                 case 1:
                     theByte =
-                        (slice_phase1(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase3(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase0(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase2(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase4(pPtr+9) > 0 ? 0x08 : 0) |
-                        (slice_phase1(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase3(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase0(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase1(pPtr) ? 0x80 : 0) |
+                        (slice_phase3(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase0(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase2(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase4(pPtr+9) ? 0x08 : 0) |
+                        (slice_phase1(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase3(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase0(pPtr+17) ? 0x01 : 0);
 
                     phase = 2;
                     pPtr += 19;
@@ -216,14 +214,14 @@ void demodulate2400(struct mag_buf *mag)
 
                 case 2:
                     theByte =
-                        (slice_phase2(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase4(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase1(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase3(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase0(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase2(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase4(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase1(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase2(pPtr) ? 0x80 : 0) |
+                        (slice_phase4(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase1(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase3(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase0(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase2(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase4(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase1(pPtr+17) ? 0x01 : 0);
 
                     phase = 3;
                     pPtr += 19;
@@ -231,14 +229,14 @@ void demodulate2400(struct mag_buf *mag)
 
                 case 3:
                     theByte =
-                        (slice_phase3(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase0(pPtr+3) > 0 ? 0x40 : 0) |
-                        (slice_phase2(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase4(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase1(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase3(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase0(pPtr+15) > 0 ? 0x02 : 0) |
-                        (slice_phase2(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase3(pPtr) ? 0x80 : 0) |
+                        (slice_phase0(pPtr+3) ? 0x40 : 0) |
+                        (slice_phase2(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase4(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase1(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase3(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase0(pPtr+15) ? 0x02 : 0) |
+                        (slice_phase2(pPtr+17) ? 0x01 : 0);
 
                     phase = 4;
                     pPtr += 19;
@@ -246,14 +244,14 @@ void demodulate2400(struct mag_buf *mag)
 
                 case 4:
                     theByte =
-                        (slice_phase4(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase1(pPtr+3) > 0 ? 0x40 : 0) |
-                        (slice_phase3(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase0(pPtr+8) > 0 ? 0x10 : 0) |
-                        (slice_phase2(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase4(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase1(pPtr+15) > 0 ? 0x02 : 0) |
-                        (slice_phase3(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase4(pPtr) ? 0x80 : 0) |
+                        (slice_phase1(pPtr+3) ? 0x40 : 0) |
+                        (slice_phase3(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase0(pPtr+8) ? 0x10 : 0) |
+                        (slice_phase2(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase4(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase1(pPtr+15) ? 0x02 : 0) |
+                        (slice_phase3(pPtr+17) ? 0x01 : 0);
 
                     phase = 0;
                     pPtr += 20;
@@ -266,7 +264,7 @@ void demodulate2400(struct mag_buf *mag)
                     case 0: case 4: case 5: case 11:
                         bytelen = MODES_SHORT_MSG_BYTES; break;
 
-                    case 16: case 17: case 18: case 20: case 21: case 24:
+                    case 16: case 17: case 18: case 19: case 20: case 21: case 24:
                         break;
 
                     default:
@@ -331,21 +329,18 @@ void demodulate2400(struct mag_buf *mag)
 
         // measure signal power
         {
-            double signal_power;
-            uint64_t scaled_signal_power = 0;
+            internal_float_t signal_power = 0.0;
             int signal_len = msglen*12/5;
-            int k;
 
-            for (k = 0; k < signal_len; ++k) {
-                uint32_t mag = m[j+19+k];
-                scaled_signal_power += mag * mag;
+            for (int k = 0; k < signal_len; ++k) {
+                const mag_data_t mag = m[j+19+k];
+                signal_power += mag * mag;
             }
 
-            signal_power = scaled_signal_power / 65535.0 / 65535.0;
             mm.signalLevel = signal_power / signal_len;
             Modes.stats_current.signal_power_sum += signal_power;
             Modes.stats_current.signal_power_count += signal_len;
-            sum_scaled_signal_power += scaled_signal_power;
+            sum_signal_power += signal_power;
 
             if (mm.signalLevel > Modes.stats_current.peak_signal_power)
                 Modes.stats_current.peak_signal_power = mm.signalLevel;
@@ -367,7 +362,6 @@ void demodulate2400(struct mag_buf *mag)
 
     /* update noise power */
     {
-        double sum_signal_power = sum_scaled_signal_power / 65535.0 / 65535.0;
         Modes.stats_current.noise_power_sum += (mag->mean_power * mag->length - sum_signal_power);
         Modes.stats_current.noise_power_count += mag->length;
     }
@@ -457,6 +451,13 @@ static void draw_modeac(uint16_t *m, unsigned modeac, unsigned f1_clock, unsigne
 ////////// MODE A/C
 //////////
 
+//static const double virtualClockFrequency = 60e6;
+//static const double virtualClockPeriod = 1.0 / virtualClockFrequency;
+//static const double bitClockFrequency = 12e6;
+//static const double bitClockPeriod = 1.0 / bitClockFrequency;
+static const int cyclesPerModeACBitPeriod = 87;
+static const int cyclesPerSample = 25;
+
 // Mode A/C bits are 1.45us wide, consisting of 0.45us on and 1.0us off
 // We track this in terms of a (virtual) 60MHz clock, which is the lowest common multiple
 // of the bit frequency and the 2.4MHz sampling frequency
@@ -465,20 +466,19 @@ static void draw_modeac(uint16_t *m, unsigned modeac, unsigned f1_clock, unsigne
 //            1.00us = 60 cycles } one bit period = 1.45us = 87 cycles
 //
 // one 2.4MHz sample = 25 cycles
-
 void demodulate2400AC(struct mag_buf *mag)
 {
     struct modesMessage mm;
-    uint16_t *m = mag->data;
-    uint32_t mlen = mag->length;
-    unsigned f1_sample;
+    const mag_data_t *const m = mag->data;
+    const uint32_t mlen = mag->length;
 
     memset(&mm, 0, sizeof(mm));
 
-    double noise_stddev = sqrt(mag->mean_power - mag->mean_level * mag->mean_level); // Var(X) = E[(X-E[X])^2] = E[X^2] - (E[X])^2
-    unsigned noise_level = (unsigned) ((mag->mean_power + noise_stddev) * 65535 + 0.5);
+    const internal_float_t noise_stddev = sqrt(mag->mean_power - mag->mean_level * mag->mean_level); // Var(X) = E[(X-E[X])^2] = E[X^2] - (E[X])^2
+    const internal_float_t noise_level = mag->mean_power + noise_stddev;
+    const internal_float_t noise_level_plus_6dB = noise_level * 2.0;
 
-    for (f1_sample = 1; f1_sample < mlen; ++f1_sample) {
+    for (uint32_t f1_sample = 1; f1_sample < mlen; ++f1_sample) {
         // Mode A/C messages should match this bit sequence:
 
         // bit #     value
@@ -532,9 +532,9 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f1_sample+2] > m[f1_sample+0] || m[f1_sample+2] > m[f1_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        unsigned f1_level = (m[f1_sample+0] + m[f1_sample+1]) / 2;
+        const internal_float_t f1_level = (m[f1_sample+0] + m[f1_sample+1]) * 0.5;
 
-        if (noise_level * 2 > f1_level) {
+        if (noise_level_plus_6dB > f1_level) {
             // require 6dB above noise
             continue;
         }
@@ -542,15 +542,15 @@ void demodulate2400AC(struct mag_buf *mag)
         // estimate initial clock phase based on the amount of power
         // that ended up in the second sample
 
-        float f1a_power = (float)m[f1_sample] * m[f1_sample];
-        float f1b_power = (float)m[f1_sample+1] * m[f1_sample+1];
-        float fraction = f1b_power / (f1a_power + f1b_power);
-        unsigned f1_clock = (unsigned) (25 * (f1_sample + fraction * fraction) + 0.5);
+        const internal_float_t f1a_power = m[f1_sample] * m[f1_sample];
+        const internal_float_t f1b_power = m[f1_sample+1] * m[f1_sample+1];
+        const internal_float_t fraction = f1b_power / (f1a_power + f1b_power);
+        const long f1_clock = lround(cyclesPerSample * (f1_sample + fraction * fraction));
 
         // same again for F2
         // F2 is 20.3us / 14 bit periods after F1
-        unsigned f2_clock = f1_clock + (87 * 14);
-        unsigned f2_sample = f2_clock / 25;
+        const long f2_clock = f1_clock + (cyclesPerModeACBitPeriod * 14L);
+        const long f2_sample = f2_clock / cyclesPerSample;
         assert(f2_sample < mlen + Modes.trailing_samples);
 
         if (!(m[f2_sample-1] < m[f2_sample+0]))
@@ -559,27 +559,26 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f2_sample+2] > m[f2_sample+0] || m[f2_sample+2] > m[f2_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        unsigned f2_level = (m[f2_sample+0] + m[f2_sample+1]) / 2;
+        internal_float_t f2_level = (m[f2_sample+0] + m[f2_sample+1]) * 0.5;
 
-        if (noise_level * 2 > f2_level) {
+        if (noise_level_plus_6dB > f2_level) {
             // require 6dB above noise
             continue;
         }
 
-        unsigned f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
+        const internal_float_t f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
 
-        float midpoint = sqrtf(noise_level * f1f2_level); // geometric mean of the two levels
-        unsigned signal_threshold = (unsigned) (midpoint * M_SQRT2 + 0.5); // +3dB
-        unsigned noise_threshold = (unsigned) (midpoint / M_SQRT2 + 0.5);  // -3dB
+        const internal_float_t midpoint = sqrt(noise_level * f1f2_level); // geometric mean of the two levels
+        const internal_float_t signal_threshold = midpoint * M_SQRT2; // +3dB
+        const internal_float_t noise_threshold = midpoint * M_SQRT1_2;  // -3dB
 
         // Looks like a real signal. Demodulate all the bits.
-        unsigned uncertain_bits = 0;
-        unsigned noisy_bits = 0;
-        unsigned bits = 0;
-        unsigned bit;
-        unsigned clock;
-        for (bit = 0, clock = f1_clock; bit < 20; ++bit, clock += 87) {
-            unsigned sample = clock / 25;
+        long uncertain_bits = 0;
+        long noisy_bits = 0;
+        long bits = 0;
+
+        for (long bit = 0, clock = f1_clock; bit < 20L; ++bit, clock += cyclesPerModeACBitPeriod) {
+            long sample = clock / cyclesPerSample;
 
             bits <<= 1;
             noisy_bits <<= 1;
@@ -650,7 +649,7 @@ void demodulate2400AC(struct mag_buf *mag)
         // Pass data to the next layer
         useModesMessage(&mm);
 
-        f1_sample += (20*87 / 25);
+        f1_sample += (20*cyclesPerModeACBitPeriod / cyclesPerSample);
         Modes.stats_current.demod_modeac++;
     }
 }

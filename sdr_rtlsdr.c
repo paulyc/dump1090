@@ -145,6 +145,7 @@ void rtlsdrShowHelp()
     printf("--enable-agc             enable digital AGC (not tuner AGC!)\n");
     printf("--ppm <correction>       set oscillator frequency correction in PPM\n");
     printf("--direct <0|1|2>         set direct sampling mode\n");
+
     printf("\n");
 }
 
@@ -248,12 +249,12 @@ bool rtlsdrOpen(void) {
 
     rtlsdr_set_freq_correction(RTLSDR.dev, RTLSDR.ppm_error);
     rtlsdr_set_center_freq(RTLSDR.dev, Modes.freq);
-    rtlsdr_set_sample_rate(RTLSDR.dev, (unsigned)Modes.sample_rate);
+    rtlsdr_set_sample_rate(RTLSDR.dev, MODES_SAMPLE_RATE);
 
     rtlsdr_reset_buffer(RTLSDR.dev);
 
     RTLSDR.converter = init_converter(INPUT_UC8,
-                                      Modes.sample_rate,
+                                      MODES_SAMPLE_RATE,
                                       Modes.dc_filter,
                                       &RTLSDR.converter_state);
     if (!RTLSDR.converter) {
@@ -321,18 +322,20 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     pthread_mutex_unlock(&Modes.data_mutex);
 
     // Compute the sample timestamp and system timestamp for the start of the block
-    outbuf->sampleTimestamp = sampleCounter * 12e6 / Modes.sample_rate;
+    outbuf->sampleTimestamp = sampleCounter * 12e6 / MODES_SAMPLE_RATE;
     sampleCounter += slen;
 
     // Get the approx system time for the start of this block
-    block_duration = 1e3 * slen / Modes.sample_rate;
+    block_duration = 1e3 * slen / MODES_SAMPLE_RATE;
     outbuf->sysTimestamp = mstime() - block_duration;
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {
-        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
     } else {
-        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+        for (int i = 0; i < Modes.trailing_samples; ++i) {
+            outbuf->data[i] = 0.0;
+        }
     }
 
     // Convert the new data

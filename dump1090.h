@@ -54,7 +54,7 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13.3-paulyc"
+# define MODES_DUMP1090_VERSION     "v1.14-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
@@ -92,7 +92,7 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13-custom"
+# define MODES_DUMP1090_VERSION     "v1.14-custom"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
@@ -100,6 +100,7 @@
 #endif
 
 #define HAVE_RTL_BIAST             1
+#define MODES_SAMPLE_RATE          2400000
 #define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -126,15 +127,15 @@
 #define MODES_SHORT_MSG_BITS    (MODES_SHORT_MSG_BYTES   * 8)
 #define MODES_LONG_MSG_SAMPLES  (MODES_LONG_MSG_BITS     * 2)
 #define MODES_SHORT_MSG_SAMPLES (MODES_SHORT_MSG_BITS    * 2)
-#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OS_PREAMBLE_SAMPLES  (20)
-#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
 #define MODES_OS_LONG_MSG_SAMPLES  (268)
 #define MODES_OS_SHORT_MSG_SAMPLES (135)
-#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OUT_BUF_SIZE         (1500)
 #define MODES_OUT_FLUSH_SIZE       (MODES_OUT_BUF_SIZE - 256)
@@ -272,6 +273,8 @@ typedef enum {
 #define MAX_AMPLITUDE 65535.0
 #define MAX_POWER (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
+typedef double internal_float_t;
+
 // Include subheaders after all the #defines are in place
 
 #include "util.h"
@@ -293,13 +296,13 @@ typedef enum {
 
 // Structure representing one magnitude buffer
 struct mag_buf {
-    uint16_t       *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
+    mag_data_t       *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
     unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + Modes.trailing_samples.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
-    double          mean_level;      // Mean of normalized (0..1) signal level
-    double          mean_power;      // Mean of normalized (0..1) power level
+    internal_float_t mean_level;      // Mean of normalized (0..1) signal level
+    internal_float_t mean_power;      // Mean of normalized (0..1) power level
 };
 
 // Program global state
@@ -315,7 +318,7 @@ struct modes_t {                             // Internal state
     struct timespec reader_cpu_accumulator;               // CPU time used by the reader thread, copied out and reset by the main thread under the mutex
 
     unsigned        trailing_samples;                     // extra trailing samples in magnitude buffers
-    double          sample_rate;                          // actual sample rate in use (in hz)
+    //double          sample_rate;                          // actual sample rate in use (in hz)
 
     uint16_t       *log10lut;        // Magnitude -> log10 lookup table
     int             exit;            // Exit from the main loop when true

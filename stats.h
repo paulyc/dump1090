@@ -72,15 +72,15 @@ struct stats {
     struct timespec background_cpu;
 
     // noise floor:
-    double noise_power_sum;
+    internal_float_t noise_power_sum;
     uint64_t noise_power_count;
 
     // mean signal power:
-    double signal_power_sum;
+    internal_float_t signal_power_sum;
     uint64_t signal_power_count;
 
     // peak signal power seen
-    double peak_signal_power;
+    internal_float_t peak_signal_power;
 
     // number of signals with power > -3dBFS
     uint32_t strong_signal_count;

@@ -82,7 +82,7 @@ void ifileShowHelp()
     printf("--ifile <path>           read samples from given file ('-' for stdin)\n");
     printf("--iformat <type>         set sample format (UC8, SC16, SC16Q11)\n");
     printf("--throttle               process samples at the original capture speed\n");
-    //printf("--samplerate <rate>      original sample rate\n");
+    //printf("--oversample <rate>      oversampling multiple of 2.4 MHz\n");
     printf("\n");
 }
 
@@ -110,9 +110,6 @@ bool ifileHandleOption(int argc, char **argv, int *jptr)
         }
     } else if (!strcmp(argv[j],"--throttle")) {
         ifile.throttle = true;
-        // oops, demodulator doesnt support any sample rate but 2.4MHz, sigh
-    //} else if (!strcmp(argv[j],"--samplerate") && more) {
-    //    Modes.sample_rate = strtof(argv[++j], NULL);
     } else {
         return false;
     }
@@ -163,7 +160,7 @@ bool ifileOpen(void)
     }
 
     ifile.converter = init_converter(ifile.input_format,
-                                     Modes.sample_rate,
+                                     MODES_SAMPLE_RATE,
                                      Modes.dc_filter,
                                      &ifile.converter_state);
     if (!ifile.converter) {
@@ -210,14 +207,14 @@ void ifileRun()
         pthread_mutex_unlock(&Modes.data_mutex);
 
         // Compute the sample timestamp for the start of the block
-        outbuf->sampleTimestamp = sampleCounter * 12e6 / Modes.sample_rate;
+        outbuf->sampleTimestamp = sampleCounter * 12e6 / MODES_SAMPLE_RATE;
         sampleCounter += MODES_MAG_BUF_SAMPLES;
 
         // Copy trailing data from last block (or reset if not valid)
         if (lastbuf->length >= Modes.trailing_samples) {
-            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(mag_data_t));
         } else {
-            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(mag_data_t));
         }
 
         // Get the system time for the start of this block
@@ -253,7 +250,7 @@ void ifileRun()
                 ;
 
             // compute the time we can deliver the next buffer.
-            next_buffer_delivery.tv_nsec += outbuf->length * 1e9 / Modes.sample_rate;
+            next_buffer_delivery.tv_nsec += outbuf->length * 1e9 / MODES_SAMPLE_RATE;
             normalize_timespec(&next_buffer_delivery);
         }
 
