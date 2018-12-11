@@ -29,17 +29,17 @@ namespace gr {
   namespace dump1090 {
 
     crc_validator::sptr
-    crc_validator::make(double)
+    crc_validator::make()
     {
       return gnuradio::get_initial_sptr
-        (new crc_validator_impl(double));
+        (new crc_validator_impl());
     }
 
 
     /*
      * The private constructor
      */
-    crc_validator_impl::crc_validator_impl(double)
+    crc_validator_impl::crc_validator_impl()
       : gr::block("crc_validator",
               gr::io_signature::make(<+MIN_IN+>, <+MAX_IN+>, sizeof(<+ITYPE+>)),
               gr::io_signature::make(<+MIN_OUT+>, <+MAX_OUT+>, sizeof(<+OTYPE+>)))

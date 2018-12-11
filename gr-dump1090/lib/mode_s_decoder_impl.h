@@ -32,7 +32,7 @@ namespace gr {
       // Nothing to declare in this block.
 
      public:
-      mode_s_decoder_impl(double);
+      mode_s_decoder_impl();
       ~mode_s_decoder_impl();
 
       // Where all the action really happens

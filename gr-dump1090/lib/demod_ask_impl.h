@@ -32,7 +32,7 @@ namespace gr {
       // Nothing to declare in this block.
 
      public:
-      demod_ask_impl(double);
+      demod_ask_impl();
       ~demod_ask_impl();
 
       // Where all the action really happens

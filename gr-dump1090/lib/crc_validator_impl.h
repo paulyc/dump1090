@@ -32,7 +32,7 @@ namespace gr {
       // Nothing to declare in this block.
 
      public:
-      crc_validator_impl(double);
+      crc_validator_impl();
       ~crc_validator_impl();
 
       // Where all the action really happens

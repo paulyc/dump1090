@@ -32,14 +32,14 @@ namespace gr {
     demod_ask::make(double)
     {
       return gnuradio::get_initial_sptr
-        (new demod_ask_impl(double));
+        (new demod_ask_impl());
     }
 
 
     /*
      * The private constructor
      */
-    demod_ask_impl::demod_ask_impl(double)
+    demod_ask_impl::demod_ask_impl()
       : gr::block("demod_ask",
               gr::io_signature::make(<+MIN_IN+>, <+MAX_IN+>, sizeof(<+ITYPE+>)),
               gr::io_signature::make(<+MIN_OUT+>, <+MAX_OUT+>, sizeof(<+OTYPE+>)))

@@ -29,17 +29,17 @@ namespace gr {
   namespace dump1090 {
 
     mode_s_decoder::sptr
-    mode_s_decoder::make(double)
+    mode_s_decoder::make()
     {
       return gnuradio::get_initial_sptr
-        (new mode_s_decoder_impl(double));
+        (new mode_s_decoder_impl());
     }
 
 
     /*
      * The private constructor
      */
-    mode_s_decoder_impl::mode_s_decoder_impl(double)
+    mode_s_decoder_impl::mode_s_decoder_impl()
       : gr::block("mode_s_decoder",
               gr::io_signature::make(<+MIN_IN+>, <+MAX_IN+>, sizeof(<+ITYPE+>)),
               gr::io_signature::make(<+MIN_OUT+>, <+MAX_OUT+>, sizeof(<+OTYPE+>)))
