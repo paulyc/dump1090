@@ -684,7 +684,7 @@ typedef enum {
 
 // Structure representing one magnitude buffer
 struct mag_buf {
-    mag_data_t      *data;            // Magnitude data. Starts with MODES_TRAILING_SAMPLES worth of overlap from the previous block. TODO change to array of size MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES
+    mag_data_t      data[MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES];            // Magnitude data. Starts with MODES_TRAILING_SAMPLES worth of overlap from the previous block.
     unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + MODES_TRAILING_SAMPLES.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
@@ -707,7 +707,6 @@ struct modes_t {                             // Internal state
 
     //double          sample_rate;                          // actual sample rate in use (in hz)
 
-    uint16_t       *log10lut;        // Magnitude -> log10 lookup table
     int             exit;            // Exit from the main loop when true
 
     // Sample conversion

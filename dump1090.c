@@ -176,19 +176,7 @@ void modesInit(void) {
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
 
-    // Allocate the various buffers used by Modes
-    if ( ((Modes.log10lut   = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) )
-    {
-        fprintf(stderr, "Out of memory allocating data buffer.\n");
-        exit(1);
-    }
-
     for (i = 0; i < MODES_MAG_BUFFERS; ++i) {
-        if ( (Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES, sizeof(mag_data_t))) == NULL ) {
-            fprintf(stderr, "Out of memory allocating magnitude buffer.\n");
-            exit(1);
-        }
-
         Modes.mag_buffers[i].length = 0;
         Modes.mag_buffers[i].dropped = 0;
         Modes.mag_buffers[i].sampleTimestamp = 0;
@@ -220,12 +208,6 @@ void modesInit(void) {
       {Modes.net_output_flush_interval = MODES_OUT_FLUSH_INTERVAL;}
     if (Modes.net_sndbuf_size > (MODES_NET_SNDBUF_MAX))
       {Modes.net_sndbuf_size = MODES_NET_SNDBUF_MAX;}
-
-    // Prepare the log10 lookup table: 100log10(x)
-    Modes.log10lut[0] = 0; // poorly defined..
-    for (i = 1; i <= 65535; i++) {
-        Modes.log10lut[i] = (uint16_t) round(100.0 * log10(i));
-    }
 
     // Prepare error correction tables
     modesChecksumInit(Modes.nfix_crc);
