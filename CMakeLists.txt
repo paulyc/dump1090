@@ -32,12 +32,12 @@ if(APPLE)
   #for darwin build
   set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T")
-  set(LDFLAGS "-pthread")
+  set(LDFLAGS ${LDFLAGS} -pthread)
 elseif(UNIX)
   #for linux build
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE")
   set(COMPAT_SOURCES)
-  set(LDFLAGS "-pthread")
+  set(LDFLAGS ${LDFLAGS} -pthread)
 #elseif(ANDROID)  ?? is this a thing?
 #  add_subdirectory(deps)
 else()
