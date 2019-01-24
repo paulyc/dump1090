@@ -61,6 +61,7 @@ static struct {
 
     iq_convert_fn converter;
     struct converter_state *converter_state;
+    int biastee;
 } RTLSDR;
 
 //
@@ -75,6 +76,7 @@ void rtlsdrInitConfig()
     RTLSDR.direct_sampling = 0;
     RTLSDR.converter = NULL;
     RTLSDR.converter_state = NULL;
+    RTLSDR.biastee = 0;
 }
 
 static void show_rtlsdr_devices()
@@ -145,6 +147,7 @@ void rtlsdrShowHelp()
     printf("--enable-agc             enable digital AGC (not tuner AGC!)\n");
     printf("--ppm <correction>       set oscillator frequency correction in PPM\n");
     printf("--direct <0|1|2>         set direct sampling mode\n");
+    printf("--biastee                enable bias-T on GPIO PIN 0 (works for rtl-sdr.com v3 dongles)\n");
     printf("\n");
 }
 
@@ -159,6 +162,8 @@ bool rtlsdrHandleOption(int argc, char **argv, int *jptr)
         RTLSDR.ppm_error = atoi(argv[++j]);
     } else if (!strcmp(argv[j], "--direct") && more) {
         RTLSDR.direct_sampling = atoi(argv[++j]);
+    } else if (!strcmp(argv[j], "--biastee") && more) {
+        RTLSDR.biastee = 1;
     } else {
         return false;
     }
@@ -249,6 +254,13 @@ bool rtlsdrOpen(void) {
     rtlsdr_set_freq_correction(RTLSDR.dev, RTLSDR.ppm_error);
     rtlsdr_set_center_freq(RTLSDR.dev, Modes.freq);
     rtlsdr_set_sample_rate(RTLSDR.dev, (unsigned)Modes.sample_rate);
+
+    if (RTLSDR.biastee) {
+        fprintf(stderr, "rtlsdr: enabling bias tee\n");
+        if (rtlsdr_set_bias_tee(RTLSDR.dev, RTLSDR.biastee) == -1) {
+            fprintf(stderr, "rtlsdr: device is not initialized\n");
+        }
+    }
 
     rtlsdr_reset_buffer(RTLSDR.dev);
 
