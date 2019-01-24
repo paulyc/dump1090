@@ -30,6 +30,7 @@ set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c)
 #for linux build
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
 set(COMPAT_SOURCES)
+set(LDFLAGS ${LDFLAGS} -pthread)
 set(EXTRA_LIBS "-lm -lncurses -lpthread -lusb1.0")
 
 #for darwin build
