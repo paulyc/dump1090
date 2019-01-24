@@ -28,14 +28,14 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -std
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c)
 
 #for linux build
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -Wall -Werror -Wno-format-truncation")
 set(COMPAT_SOURCES)
-set(LDFLAGS "-pthread")
+set(EXTRA_LIBS "-lm -lncurses -lpthread -lusb1.0")
 
 #for darwin build
-#set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T)
-#set(LDFLAGS)
+set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMISSING_NANOSLEEP -DCLOCKID_T")
+set(EXTRA_LIBS "-lm -lncurses -lpthread")
 
 add_library(
 	1090
