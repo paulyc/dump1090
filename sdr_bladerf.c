@@ -102,7 +102,7 @@ static void show_config()
     int status;
 
     unsigned rate;
-    unsigned freq;
+    bladerf_frequency freq;
     bladerf_lpf_mode lpf_mode;
     unsigned lpf_bw;
     bladerf_lna_gain lna_gain;

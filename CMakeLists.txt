@@ -25,6 +25,8 @@ include_directories(
 	${PROJECT_SOURCE_DIR}
 )
 
+add_link_options("-L/usr/local/lib")
+
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -DENABLE_LIMESDR -std=c11 -Wall -Werror")
 set(SDR_SOURCES sdr.c sdr_ifile.c sdr_rtlsdr.c sdr_bladerf.c sdr_lime.c)
 
@@ -51,7 +53,7 @@ add_library(
 	1090
 
 	SHARED
-	
+
 	anet.c
 	${COMPAT_SOURCES}
 	comm_b.c
@@ -69,7 +71,7 @@ add_library(
 	stats.c
 	track.c
 	util.c
-	
+
 	dump1090.c
 	faup1090.c
 	view1090.c
