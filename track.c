@@ -302,6 +302,18 @@ static int speed_check(struct aircraft *a, double lat, double lon, int surface)
     return inrange;
 }
 
+// return 1 if left_rc is worse (less accurate) than right_rc
+static int rcIsWorse(int left_rc, int right_rc)
+{
+    if (left_rc == 0 && right_rc == 0) // both unknown
+        return 0;
+    if (left_rc == 0)
+        return 1; // left unknown < right known
+    if (right_rc == 0)
+        return 0; // left known > right unknown
+    return (left_rc > right_rc);
+}
+
 static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, double *lat, double *lon, unsigned *nic, unsigned *rc)
 {
     int result;
@@ -309,9 +321,9 @@ static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, double *lat,
     int surface = (mm->cpr_type == CPR_SURFACE);
 
     // derive NIC, Rc from the worse of the two position
-    // smaller NIC is worse; larger Rc is worse
+    // smaller NIC is worse
     *nic = (a->cpr_even_nic < a->cpr_odd_nic ? a->cpr_even_nic : a->cpr_odd_nic);
-    *rc = (a->cpr_even_rc > a->cpr_odd_rc ? a->cpr_even_rc : a->cpr_odd_rc);
+    *rc = (rcIsWorse(a->cpr_even_rc, a->cpr_odd_rc) ? a->cpr_even_rc : a->cpr_odd_rc);
 
     if (surface) {
         // surface global CPR
@@ -372,7 +384,7 @@ static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, double *lat,
         return result;
 
     // check speed limit
-    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && a->pos_rc <= *rc && !speed_check(a, *lat, *lon, surface)) {
+    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && !rcIsWorse(a->pos_rc, *rc) && !speed_check(a, *lat, *lon, surface)) {
         Modes.stats_current.cpr_global_speed_checks++;
         return -2;
     }
@@ -404,7 +416,7 @@ static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, double *lat, 
 
         if (a->pos_nic < *nic)
             *nic = a->pos_nic;
-        if (a->pos_rc < *rc)
+        if (rcIsWorse(a->pos_rc, *rc))
             *rc = a->pos_rc;
 
         range_limit = 50e3;
@@ -454,7 +466,7 @@ static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, double *lat, 
     }
 
     // check speed limit
-    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && a->pos_rc <= *rc && !speed_check(a, *lat, *lon, surface)) {
+    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && !rcIsWorse(a->pos_rc, *rc) && !speed_check(a, *lat, *lon, surface)) {
 #ifdef DEBUG_CPR_CHECKS
         fprintf(stderr, "Speed check for %06X with local decoding failed\n", a->addr);
 #endif
@@ -661,6 +673,8 @@ static unsigned compute_nic(unsigned metype, unsigned version, unsigned nic_a, u
 
 static unsigned compute_rc(unsigned metype, unsigned version, unsigned nic_a, unsigned nic_b, unsigned nic_c)
 {
+    // ED-102 Table 2-14, Table N-4, Table N-11
+
     switch (metype) {
     case 5: // surface
     case 9: // airborne
@@ -696,7 +710,7 @@ static unsigned compute_rc(unsigned metype, unsigned version, unsigned nic_a, un
             } else if (nic_a && !nic_c) {
                 return 556; // 555.6m, 0.3NM
             } else if (!nic_a && nic_c) {
-                return 926; // 926m, 0.5NM
+                return 1111; // 1111m, 0.6NM
             } else {
                 return RC_UNKNOWN;
             }
@@ -709,16 +723,16 @@ static unsigned compute_rc(unsigned metype, unsigned version, unsigned nic_a, un
             if (nic_a && nic_b) {
                 return 75;
             } else {
-                return 186; // 370.4m, 0.2NM
+                return 186; // 185.2m, 0.1NM
             }
         } else if (version == 1) {
             if (nic_a) {
                 return 75;
             } else {
-                return 186; // 370.4m, 0.2NM
+                return 186; // 185.2m, 0.1NM
             }
         } else {
-            return 186; // 370.4m, 0.2NM
+            return 186; // 185.2m, 0.1NM
         }
 
     case 12: // airborne
@@ -773,6 +787,81 @@ static unsigned compute_rc(unsigned metype, unsigned version, unsigned nic_a, un
 
     default:
         return RC_UNKNOWN;
+    }
+}
+
+// Map ADS-B v0 position message type to NACp value
+// returned computed NACp, or -1 if not a suitable message type
+static int compute_v0_nacp(struct modesMessage *mm)
+{
+    if (mm->msgtype != 17 && mm->msgtype != 18) {
+        return -1;
+    }
+
+    // ED-102A Table N-7
+    switch (mm->metype) {
+    case 0: return 0;
+    case 5: return 11;
+    case 6: return 10;
+    case 7: return 8;
+    case 8: return 0;
+    case 9: return 11;
+    case 10: return 10;
+    case 11: return 8;
+    case 12: return 7;
+    case 13: return 6;
+    case 14: return 5;
+    case 15: return 4;
+    case 16: return 1;
+    case 17: return 1;
+    case 18: return 0;
+    case 20: return 11;
+    case 21: return 10;
+    case 22: return 0;
+    default: return -1;
+    }
+}
+
+// Map ADS-B v0 position message type to SIL value
+// returned computed SIL, or -1 if not a suitable message type
+static int compute_v0_sil(struct modesMessage *mm)
+{
+    if (mm->msgtype != 17 && mm->msgtype != 18) {
+        return -1;
+    }
+
+    // ED-102A Table N-8
+    switch (mm->metype) {
+    case 0:
+        return 0;
+
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 16:
+    case 17:
+        return 2;
+
+    case 18:
+        return 0;
+
+    case 20:
+    case 21:
+        return 2;
+
+    case 22:
+        return 0;
+
+    default:
+        return -1;
     }
 }
 
@@ -858,6 +947,23 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         }
         if (mm->opstatus.tah != HEADING_INVALID) {
             a->adsb_tah = mm->opstatus.tah;
+        }
+    }
+
+    // fill in ADS-B v0 NACp, SIL from position message type
+    if (a->adsb_version == 0 && !mm->accuracy.nac_p_valid) {
+        int computed_nacp = compute_v0_nacp(mm);
+        if (computed_nacp != -1) {
+            mm->accuracy.nac_p_valid = 1;
+            mm->accuracy.nac_p = computed_nacp;
+        }
+    }
+
+    if (a->adsb_version == 0 && mm->accuracy.sil_type == SIL_INVALID) {
+        int computed_sil = compute_v0_sil(mm);
+        if (computed_sil != -1) {
+            mm->accuracy.sil_type = SIL_UNKNOWN;
+            mm->accuracy.sil = computed_sil;
         }
     }
 
