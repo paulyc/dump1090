@@ -22,7 +22,7 @@
 #include "dump1090.h"
 #include "sdr_lime.h"
 
-#include <lime/LimeSuite.h>
+#include <LimeSuite.h>
 
 typedef int16_t sc16_t[2];
 typedef float fc32_t[2];

@@ -1,6 +1,6 @@
 # dump1090 - ADS-B software radio decoder
 #
-# Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
+# Copyright (C) 2019 Paul Ciarlo <paul.ciarlo@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,24 +17,84 @@
 
 cmake_minimum_required(VERSION 3.5.1)
 
-project(lib1090)
+project(dump1090)
 
-include_directories(
+link_directories(/usr/local/lib)
+include_directories(/usr/local/include)
+
+find_library(usb-1.0 NAMES libusb-1.0 libusb)
+find_path(libusb_INCLUDE libusb.h
+	HINTS
 	/usr/include/libusb-1.0
-	/usr/local/include
-	${PROJECT_SOURCE_DIR}
+	/usr/local/include/libusb-1.0
+	/usr/include/libusb
+	/usr/local/include/libusb
 )
 
-add_link_options("-L/usr/local/lib")
+set(LIB_INCLUDE_DIRS ${libusb_INCLUDE})
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -DENABLE_BLADERF -DENABLE_RTLSDR -DENABLE_LIMESDR -std=c11 -Wall -Werror")
+find_library(rtlsdr NAMES librtlsdr)
+find_path(rtlsdr_INCLUDE rtl-sdr.h)
+
+find_library(bladeRF NAMES libbladeRF)
+find_path(bladeRF_INCLUDE libbladeRF.h)
+
+find_library(LimeSuite names libLimeSuite)
+find_path(LimeSuite_INCLUDE LimeSuite.h
+	HINTS
+	/usr/include/lime
+	/usr/local/include/lime
+)
 
 set(SDR_SOURCES
-	sdr.c sdr.h
-	sdr_ifile.c sdr_ifile.h
-	sdr_rtlsdr.c sdr_rtlsdr.h
-	sdr_bladerf.c sdr_bladerf.h
-	sdr_lime.c sdr_lime.h
+	sdr.c
+	sdr.h
+	sdr_ifile.c
+	sdr_ifile.h
+)
+
+if(rtlsdr)
+	set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${rtlsdr_INCLUDE}")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_RTLSDR")
+	set(SDR_LIBS "${SDR_LIBS} rtlsdr")
+	set(SDR_SOURCES "${SDR_SOURCES} sdr_rtlsdr.c sdr_rtlsdr.h LimeSuite.h")
+endif()
+
+if(bladeRF)
+	set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${bladeRF_INCLUDE}")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_BLADERF")
+	set(SDR_LIBS "${SDR_LIBS} bladeRF")
+	set(SDR_SOURCES "${SDR_SOURCES} sdr_bladerf.c sdr_bladerf.h libbladeRF.h")
+endif()
+
+if(LimeSuite)
+	set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${LimeSuite_INCLUDE}")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_LIMESDR")
+	set(SDR_LIBS "${SDR_LIBS} LimeSuite")
+	set(SDR_SOURCES "${SDR_SOURCES} sdr_lime.c sdr_lime.h LimeSuite.h")
+endif()
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -std=c11 -Wall -Werror")
+
+set(LIB_SOURCES
+	anet.c anet.h
+	comm_b.c comm_b.h
+	convert.c convert.h
+	cpr.c cpr.h
+	crc.c crc.h
+	demod_2400.c demod_2400.h
+	icao_filter.c icao_filter.h
+	interactive.c
+	lib1090.c lib1090.h
+	mode_ac.c
+	mode_s.c mode_s.h
+	net_io.c net_io.h
+	stats.c stats.h
+	track.c track.h
+	util.c util.h
+	dump1090-impl.c
+	faup1090-impl.c
+	view1090-impl.c
 )
 
 if(APPLE)
@@ -45,8 +105,6 @@ elseif(UNIX)
   #for linux build
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE")
   set(COMPAT_SOURCES)
-#elseif(ANDROID)  ?? is this a thing?
-#  add_subdirectory(deps)
 else()
   #for ?? build (probably broken)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror")
@@ -58,53 +116,22 @@ add_library(
 
 	SHARED
 
-	anet.c
-	anet.h
+	${LIB_SOURCES}
 	${COMPAT_SOURCES}
-	comm_b.c
-	comm_b.h
-	convert.c
-	convert.h
-	cpr.c
-	cpr.h
-	crc.c
-	crc.h
-	demod_2400.c
-	demod_2400.h
-	icao_filter.c
-	icao_filter.h
-	interactive.c
-	lib1090.c
-	lib1090.h
-	mode_ac.c
-	mode_s.c
-	mode_s.h
-	net_io.c
-	net_io.h
 	${SDR_SOURCES}
-	stats.c
-	stats.h
-	track.c
-	track.h
-	util.c
-	util.h
-
-	dump1090-impl.c
-	faup1090-impl.c
-	view1090-impl.c
 )
 
 target_link_libraries(
 	1090
 
-	rtlsdr
-	bladeRF
-	LimeSuite
+	${SDR_LIBS}
 	m
 	ncurses
 	usb-1.0
 	pthread
 )
+
+target_include_directories(1090 PRIVATE ${LIB_INCLUDE_DIRS})
 
 set_target_properties(
 	1090 PROPERTIES
