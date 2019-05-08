@@ -571,7 +571,7 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
 
     // Fields 7 & 8 are the message reception time and date
     p += sprintf(p, "%04d/%02d/%02d,", (stTime_receive.tm_year+1900),(stTime_receive.tm_mon+1), stTime_receive.tm_mday);
-    p += sprintf(p, "%02d:%02d:%02d.%03u,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, (unsigned) (mm->sysTimestampMsg / 1000));
+    p += sprintf(p, "%02d:%02d:%02d.%03u,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, (unsigned) (mm->sysTimestampMsg % 1000));
 
     // Fields 9 & 10 are the current time and date
     p += sprintf(p, "%04d/%02d/%02d,", (stTime_now.tm_year+1900),(stTime_now.tm_mon+1), stTime_now.tm_mday);
@@ -1380,7 +1380,7 @@ char *generateAircraftJson(const char *url_path, int *len) {
                       10 * log10((a->signalLevel[0] + a->signalLevel[1] + a->signalLevel[2] + a->signalLevel[3] +
                                   a->signalLevel[4] + a->signalLevel[5] + a->signalLevel[6] + a->signalLevel[7] + 1e-5) / 8));
 
-        if (p >= end) {
+        if ((p + 10) >= end) { // +10 to leave some space for the final line
             // overran the buffer
             int used = line_start - buf;
             buflen *= 2;
