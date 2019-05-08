@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2015 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -47,10 +47,12 @@
 //   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 //   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "util.h"
+#include "dump1090.h"
 
 #include <stdlib.h>
 #include <sys/time.h>
+
+uint64_t _messageNow = 0;
 
 uint64_t mstime(void)
 {
@@ -68,6 +70,11 @@ int64_t receiveclock_ns_elapsed(uint64_t t1, uint64_t t2)
     return (t2 - t1) * 1000U / 12U;
 }
 
+int64_t receiveclock_ms_elapsed(uint64_t t1, uint64_t t2)
+{
+    return (t2 - t1) / 12000U;
+}
+
 void normalize_timespec(struct timespec *ts)
 {
     if (ts->tv_nsec > 1000000000) {
@@ -78,4 +85,20 @@ void normalize_timespec(struct timespec *ts)
         ts->tv_sec -= adjust;
         ts->tv_nsec = (ts->tv_nsec + 1000000000 * adjust) % 1000000000;
     }
+}
+
+/* record current CPU time in start_time */
+void start_cpu_timing(struct timespec *start_time)
+{
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, start_time);
+}
+
+/* add difference between start_time and the current CPU time to add_to */
+void end_cpu_timing(const struct timespec *start_time, struct timespec *add_to)
+{
+    struct timespec end_time;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end_time);
+    add_to->tv_sec += end_time.tv_sec - start_time->tv_sec;
+    add_to->tv_nsec += end_time.tv_nsec - start_time->tv_nsec;
+    normalize_timespec(add_to);
 }

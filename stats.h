@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2015 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -72,15 +72,15 @@ struct stats {
     struct timespec background_cpu;
 
     // noise floor:
-    double noise_power_sum;
+    internal_float_t noise_power_sum;
     uint64_t noise_power_count;
 
     // mean signal power:
-    double signal_power_sum;
+    internal_float_t signal_power_sum;
     uint64_t signal_power_count;
 
     // peak signal power seen
-    double peak_signal_power;
+    internal_float_t peak_signal_power;
 
     // number of signals with power > -3dBFS
     uint32_t strong_signal_count;
@@ -94,11 +94,6 @@ struct stats {
 
     // total messages:
     uint32_t messages_total;
-
-#ifdef ENABLE_WEBSERVER
-    // network:
-    uint32_t http_requests;
-#endif
 
     // CPR decoding:
     unsigned int cpr_surface;
@@ -129,7 +124,7 @@ struct stats {
     // range histogram
 #define RANGE_BUCKET_COUNT 76
     uint32_t range_histogram[RANGE_BUCKET_COUNT];
-};    
+};
 
 void add_stats(const struct stats *st1, const struct stats *st2, struct stats *target);
 void display_stats(struct stats *st);

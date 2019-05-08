@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2015 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -155,11 +155,6 @@ void display_stats(struct stats *st) {
     printf("%u unique aircraft tracks\n", st->unique_aircraft);
     printf("%u aircraft tracks where only one message was seen\n", st->single_message_aircraft);
 
-#ifdef ENABLE_WEBSERVER
-    if (Modes.net)
-        printf("%d HTTP requests\n", st->http_requests);
-#endif
-
     {
         uint64_t demod_cpu_millis = (uint64_t)st->demod_cpu.tv_sec*1000UL + st->demod_cpu.tv_nsec/1000000UL;
         uint64_t reader_cpu_millis = (uint64_t)st->reader_cpu.tv_sec*1000UL + st->reader_cpu.tv_nsec/1000000UL;
@@ -266,7 +261,7 @@ void add_stats(const struct stats *st1, const struct stats *st2, struct stats *t
         target->start = st2->start;
 
     target->end = st1->end > st2->end ? st1->end : st2->end;
-    
+
     target->demod_preambles = st1->demod_preambles + st2->demod_preambles;
     target->demod_rejected_bad = st1->demod_rejected_bad + st2->demod_rejected_bad;
     target->demod_rejected_unknown_icao = st1->demod_rejected_unknown_icao + st2->demod_rejected_unknown_icao;
@@ -280,7 +275,7 @@ void add_stats(const struct stats *st1, const struct stats *st2, struct stats *t
     add_timespecs(&st1->demod_cpu, &st2->demod_cpu, &target->demod_cpu);
     add_timespecs(&st1->reader_cpu, &st2->reader_cpu, &target->reader_cpu);
     add_timespecs(&st1->background_cpu, &st2->background_cpu, &target->background_cpu);
-    
+
     // noise power:
     target->noise_power_sum = st1->noise_power_sum + st2->noise_power_sum;
     target->noise_power_count = st1->noise_power_count + st2->noise_power_count;
@@ -308,11 +303,6 @@ void add_stats(const struct stats *st1, const struct stats *st2, struct stats *t
 
     // total messages:
     target->messages_total = st1->messages_total + st2->messages_total;
-
-#ifdef ENABLE_WEBSERVER
-    // network:
-    target->http_requests = st1->http_requests + st2->http_requests;
-#endif
 
     // CPR decoding:
     target->cpr_surface = st1->cpr_surface + st2->cpr_surface;

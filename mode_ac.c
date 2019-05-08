@@ -29,15 +29,59 @@
 //
 
 #include "dump1090.h"
+#include <assert.h>
 //
 //=========================================================================
 //
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
 //
-int ModeAToModeC(unsigned int ModeA) 
+
+static int modeAToCTable[4096];
+static unsigned modeCToATable[4096];
+static int internalModeAToModeC(unsigned int ModeA);
+
+void modeACInit()
 {
-  unsigned int FiveHundreds = 0;
-  unsigned int OneHundreds  = 0;
+    for (unsigned i = 0; i < 4096; ++i) {
+        unsigned modeA = indexToModeA(i);
+        int modeC = internalModeAToModeC(modeA);
+        modeAToCTable[i] = modeC;
+
+        modeC += 13;
+        if (modeC >= 0 && modeC < 4096) {
+            assert(modeCToATable[modeC] == 0);
+            modeCToATable[modeC] = modeA;
+        }
+    }
+}
+
+// Given a mode A value (hex-encoded, see above)
+// return the mode C value (signed multiple of 100s of feet)
+// or INVALID_ALITITUDE if not a valid mode C value
+int modeAToModeC(unsigned modeA)
+{
+    unsigned i = modeAToIndex(modeA);
+    if (i >= 4096)
+        return INVALID_ALTITUDE;
+
+    return modeAToCTable[i];
+}
+
+// Given a mode C value (signed multiple of 100s of feet)
+// return the mode A value, or 0 if not a valid mode C value
+unsigned modeCToModeA(int modeC)
+{
+    modeC += 13;
+    if (modeC < 0 || modeC >= 4096)
+        return 0;
+
+    return modeCToATable[modeC];
+}
+
+static int internalModeAToModeC(unsigned int ModeA)
+{
+    unsigned int FiveHundreds = 0;
+    unsigned int OneHundreds  = 0;
 
   if ((ModeA & 0xFFFF8889) != 0 ||         // check zero bits are zero, D1 set is illegal
       (ModeA & 0x000000F0) == 0) { // C1,,C4 cannot be Zero
@@ -48,10 +92,10 @@ int ModeAToModeC(unsigned int ModeA)
   if (ModeA & 0x0020) {OneHundreds ^= 0x003;} // C2
   if (ModeA & 0x0040) {OneHundreds ^= 0x001;} // C4
 
-  // Remove 7s from OneHundreds (Make 7->5, snd 5->7). 
+  // Remove 7s from OneHundreds (Make 7->5, snd 5->7).
   if ((OneHundreds & 5) == 5) {OneHundreds ^= 2;}
 
-  // Check for invalid codes, only 1 to 5 are valid 
+  // Check for invalid codes, only 1 to 5 are valid
   if (OneHundreds > 5) {
       return INVALID_ALTITUDE;
   }
@@ -64,20 +108,22 @@ int ModeAToModeC(unsigned int ModeA)
   if (ModeA & 0x2000) {FiveHundreds ^= 0x01F;} // A2
   if (ModeA & 0x4000) {FiveHundreds ^= 0x00F;} // A4
 
-  if (ModeA & 0x0100) {FiveHundreds ^= 0x007;} // B1 
+  if (ModeA & 0x0100) {FiveHundreds ^= 0x007;} // B1
   if (ModeA & 0x0200) {FiveHundreds ^= 0x003;} // B2
   if (ModeA & 0x0400) {FiveHundreds ^= 0x001;} // B4
-    
-  // Correct order of OneHundreds. 
-  if (FiveHundreds & 1) {OneHundreds = 6 - OneHundreds;} 
 
-  return ((FiveHundreds * 5) + OneHundreds - 13); 
+  // Correct order of OneHundreds.
+  if (FiveHundreds & 1) {OneHundreds = 6 - OneHundreds;}
+
+  return ((FiveHundreds * 5) + OneHundreds - 13);
 }
 //
 //=========================================================================
 //
 void decodeModeAMessage(struct modesMessage *mm, int ModeA)
 {
+    mm->source = SOURCE_MODE_AC;
+    mm->addrtype = ADDR_MODE_A;
     mm->msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
     // so use 32 to indicate Mode A/C
 
@@ -98,12 +144,11 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
 
     // Decode an altitude if this looks like a possible mode C
     if (!mm->spi) {
-        int modeC = ModeAToModeC(ModeA);
+        int modeC = modeAToModeC(ModeA);
         if (modeC != INVALID_ALTITUDE) {
-            mm->altitude = modeC * 100;
-            mm->altitude_unit = UNIT_FEET;
-            mm->altitude_source = ALTITUDE_BARO;
-            mm->altitude_valid = 1;
+            mm->altitude_baro = modeC * 100;
+            mm->altitude_baro_unit = UNIT_FEET;
+            mm->altitude_baro_valid = 1;
         }
     }
 

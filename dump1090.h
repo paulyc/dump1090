@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -52,19 +52,21 @@
 
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.14-opensky"
+# define MODES_DUMP1090_VERSION     "v1.15-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-hptoa"
+# define MODES_DUMP1090_VARIANT     "dump1090-hptoa-paulyc"
 #endif
 
 // ============================= Include files ==========================
 
 #ifndef _WIN32
+    #include <assert.h>
     #include <stdio.h>
     #include <string.h>
     #include <stdlib.h>
+    #include <stdbool.h>
     #include <pthread.h>
     #include <stdint.h>
     #include <errno.h>
@@ -89,8 +91,14 @@
 // Avoid a dependency on rtl-sdr except where it's really needed.
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 
+#include "ais_charset.h"
+
 // ============================= #defines ===============================
 
+#define ALLOW_AGGRESSIVE 1
+
+#define HAVE_RTL_BIAST             1
+#define MODES_SAMPLE_RATE          2400000
 #define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -107,12 +115,6 @@ typedef struct rtlsdr_dev rtlsdr_dev_t;
 #define MODEAC_MSG_SAMPLES       (25 * 2)                     // include up to the SPI bit
 #define MODEAC_MSG_BYTES          2
 #define MODEAC_MSG_SQUELCH_LEVEL  0x07FF                      // Average signal strength limit
-#define MODEAC_MSG_FLAG          (1<<0)
-#define MODEAC_MSG_MODES_HIT     (1<<1)
-#define MODEAC_MSG_MODEA_HIT     (1<<2)
-#define MODEAC_MSG_MODEC_HIT     (1<<3)
-#define MODEAC_MSG_MODEA_ONLY    (1<<4)
-#define MODEAC_MSG_MODEC_OLD     (1<<5)
 
 #define MODES_PREAMBLE_US        8              // microseconds = bits
 #define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
@@ -123,15 +125,17 @@ typedef struct rtlsdr_dev rtlsdr_dev_t;
 #define MODES_SHORT_MSG_BITS    (MODES_SHORT_MSG_BYTES   * 8)
 #define MODES_LONG_MSG_SAMPLES  (MODES_LONG_MSG_BITS     * 2)
 #define MODES_SHORT_MSG_SAMPLES (MODES_SHORT_MSG_BITS    * 2)
-#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OS_PREAMBLE_SAMPLES  (20)
-#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
 #define MODES_OS_LONG_MSG_SAMPLES  (268)
 #define MODES_OS_SHORT_MSG_SAMPLES (135)
-#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+
+#define MODES_TRAILING_SAMPLES ((MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * MODES_SAMPLE_RATE / 1000000)
 
 #define MODES_OUT_BUF_SIZE         (1500)
 #define MODES_OUT_FLUSH_SIZE       (MODES_OUT_BUF_SIZE - 256)
@@ -144,6 +148,7 @@ typedef struct rtlsdr_dev rtlsdr_dev_t;
 /* Where did a bit of data arrive from? In order of increasing priority */
 typedef enum {
     SOURCE_INVALID,        /* data is not valid */
+    SOURCE_MODE_AC,        /* A/C message */
     SOURCE_MLAT,           /* derived from mlat */
     SOURCE_MODE_S,         /* data from a Mode S message, no full CRC */
     SOURCE_MODE_S_CHECKED, /* data from a Mode S message with full CRC */
@@ -165,6 +170,8 @@ typedef enum {
     ADDR_TISB_TRACKFILE,  /* TIS-B, Mode A code + track file number */
     ADDR_TISB_OTHER,      /* TIS-B, other address format */
 
+    ADDR_MODE_A,          /* Mode A */
+
     ADDR_UNKNOWN          /* unknown address format */
 } addrtype_t;
 
@@ -175,7 +182,7 @@ typedef enum {
 
 typedef enum {
     ALTITUDE_BARO,
-    ALTITUDE_GNSS
+    ALTITUDE_GEOM
 } altitude_source_t;
 
 typedef enum {
@@ -186,23 +193,59 @@ typedef enum {
 } airground_t;
 
 typedef enum {
-    SPEED_GROUNDSPEED,
-    SPEED_IAS,
-    SPEED_TAS
-} speed_source_t;
-
-typedef enum {
-    HEADING_TRUE,
-    HEADING_MAGNETIC
-} heading_source_t;
-
-typedef enum {
-    SIL_PER_SAMPLE, SIL_PER_HOUR
+    SIL_INVALID, SIL_UNKNOWN, SIL_PER_SAMPLE, SIL_PER_HOUR
 } sil_type_t;
 
 typedef enum {
     CPR_SURFACE, CPR_AIRBORNE, CPR_COARSE
 } cpr_type_t;
+
+typedef enum {
+    HEADING_INVALID,          // Not set
+    HEADING_GROUND_TRACK,     // Direction of track over ground, degrees clockwise from true north
+    HEADING_TRUE,             // Heading, degrees clockwise from true north
+    HEADING_MAGNETIC,         // Heading, degrees clockwise from magnetic north
+    HEADING_MAGNETIC_OR_TRUE, // HEADING_MAGNETIC or HEADING_TRUE depending on the HRD bit in opstatus
+    HEADING_TRACK_OR_HEADING  // GROUND_TRACK / MAGNETIC / TRUE depending on the TAH bit in opstatus
+} heading_type_t;
+
+typedef enum {
+    COMMB_UNKNOWN,
+    COMMB_AMBIGUOUS,
+    COMMB_EMPTY_RESPONSE,
+    COMMB_DATALINK_CAPS,
+    COMMB_GICB_CAPS,
+    COMMB_AIRCRAFT_IDENT,
+    COMMB_ACAS_RA,
+    COMMB_VERTICAL_INTENT,
+    COMMB_TRACK_TURN,
+    COMMB_HEADING_SPEED
+} commb_format_t;
+
+typedef enum {
+    NAV_MODE_AUTOPILOT = 1,
+    NAV_MODE_VNAV = 2,
+    NAV_MODE_ALT_HOLD = 4,
+    NAV_MODE_APPROACH = 8,
+    NAV_MODE_LNAV = 16,
+    NAV_MODE_TCAS = 32
+} nav_modes_t;
+
+// Matches encoding of the ES type 28/1 emergency/priority status subfield
+typedef enum {
+    EMERGENCY_NONE = 0,
+    EMERGENCY_GENERAL = 1,
+    EMERGENCY_LIFEGUARD = 2,
+    EMERGENCY_MINFUEL = 3,
+    EMERGENCY_NORDO = 4,
+    EMERGENCY_UNLAWFUL = 5,
+    EMERGENCY_DOWNED = 6,
+    EMERGENCY_RESERVED = 7
+} emergency_t;
+
+typedef enum {
+    NAV_ALT_INVALID, NAV_ALT_UNKNOWN, NAV_ALT_AIRCRAFT, NAV_ALT_MCP, NAV_ALT_FMS
+} nav_altitude_source_t;
 
 #define MODES_NON_ICAO_ADDRESS       (1<<24) // Set on addresses to indicate they are not ICAO addresses
 
@@ -219,7 +262,6 @@ typedef enum {
 #define MODES_DEBUG_NOPREAMBLE_LEVEL 25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250      // Milliseconds
-#define MODES_INTERACTIVE_ROWS          22      // Rows on screen
 #define MODES_INTERACTIVE_DISPLAY_TTL 60000     // Delete from display after 60 seconds
 
 #define MODES_NET_HEARTBEAT_INTERVAL 60000      // milliseconds
@@ -228,10 +270,6 @@ typedef enum {
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 #define MODES_NET_SNDBUF_MAX  (7)
 
-#ifndef HTMLPATH
-#define HTMLPATH   "./public_html"      // default path for gmap.html etc
-#endif
-
 #define HISTORY_SIZE 120
 #define HISTORY_INTERVAL 30000
 
@@ -239,6 +277,8 @@ typedef enum {
 
 #define MAX_AMPLITUDE 65535.0
 #define MAX_POWER (MAX_AMPLITUDE * MAX_AMPLITUDE)
+
+typedef double internal_float_t;
 
 // Include subheaders after all the #defines are in place
 
@@ -252,22 +292,28 @@ typedef enum {
 #include "icao_filter.h"
 #include "convert.h"
 #include "hp-toa/types.h"
+#include "sdr.h"
 
 //======================== structure declarations =========================
 
+typedef enum {
+    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF, SDR_LIMESDR
+} sdr_type_t;
+
 // Structure representing one magnitude buffer
 struct mag_buf {
-    u_char         *iq_data;         // IQ data (added for precision TOA estimation).
-    uint16_t       *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
-    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + Modes.trailing_samples.
+    u_char          iq_data[(MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES)*2];         // IQ data (added for precision TOA estimation).
+    mag_data_t      data[MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES];     // Magnitude data. Starts with MODES_TRAILING_SAMPLES worth of overlap from the previous block.
+    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + MODES_TRAILING_SAMPLES.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
-    struct timespec sysTimestamp;    // Estimated system time at start of block
+    uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
-    double          total_power;     // Sum of per-sample input power (in the range [0.0,1.0] per sample), or 0 if not measured
+    internal_float_t mean_level;      // Mean of normalized (0..1) signal level
+    internal_float_t mean_power;      // Mean of normalized (0..1) power level
 };
 
 // Program global state
-struct {                             // Internal state
+struct modes_t {                             // Internal state
     pthread_t       reader_thread;
 
     pthread_t       hptoa_thread;
@@ -280,31 +326,24 @@ struct {                             // Internal state
     unsigned        first_filled_buffer;                  // Entry in mag_buffers that has valid data and will be demodulated next. If equal to next_free_buffer, there is no unprocessed data.
     struct timespec reader_cpu_accumulator;               // CPU time used by the reader thread, copied out and reset by the main thread under the mutex
 
-    unsigned        trailing_samples;                     // extra trailing samples in magnitude buffers
     double          sample_rate;                          // actual sample rate in use (in hz)
+    unsigned        trailing_samples;
 
     int             fd;              // --ifile option file descriptor
     input_format_t  input_format;    // --iformat option
 
     uint16_t       *maglut;          // I/Q -> Magnitude lookup table
     uint16_t       *log10lut;        // Magnitude -> log10 lookup table
-    int             exit;            // Exit from the main loop when true
+    int             exit;            // Exit from the main loop when true (2 = unclean exit)
 
     // Sample conversion
     int            dc_filter;        // should we apply a DC filter?
-    iq_convert_fn  converter_function;
-    struct converter_state *converter_state;
 
     // RTLSDR
     char *        dev_name;
     int           gain;
-    int           enable_agc;
-    rtlsdr_dev_t *dev;
     int           freq;
     int           ppm_error;
-#ifdef HAVE_RTL_BIAST
-    int           enable_rtlsdr_biast;
-#endif
 
     // Networking
     char           aneterr[ANET_ERR_LEN];
@@ -321,26 +360,24 @@ struct {                             // Internal state
 #endif
 
     // Configuration
-    char *filename;                  // Input form file, --ifile option
+    sdr_type_t sdr_type;             // where are we getting data from?
     int   nfix_crc;                  // Number of crc bit error(s) to correct
     int   check_crc;                 // Only display messages with good CRC
     int   raw;                       // Raw output format
     int   mode_ac;                   // Enable decoding of SSR Modes A & C
+    int   mode_ac_auto;              // allow toggling of A/C by Beast commands
     int   debug;                     // Debugging mode
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
     high_precision_t   hp_timestamp; // Enable High Precision Timestamp.
     uint64_t net_heartbeat_interval; // TCP heartbeat interval (milliseconds)
-    int   net_output_flush_size;     // Minimum Size of output data
+    size_t   net_output_flush_size;     // Minimum Size of output data
     uint64_t net_output_flush_interval; // Maximum interval (in milliseconds) between outputwrites
     char *net_output_raw_ports;      // List of raw output TCP ports
     char *net_input_raw_ports;       // List of raw input TCP ports
     char *net_output_sbs_ports;      // List of SBS output TCP ports
     char *net_input_beast_ports;     // List of Beast input TCP ports
     char *net_output_beast_ports;    // List of Beast output TCP ports
-#ifdef ENABLE_WEBSERVER
-    char *net_http_ports;            // List of HTTP ports
-#endif
     char *net_bind_address;          // Bind address
     int   net_sndbuf_size;           // TCP output buffer size (64Kb * 2^n)
     int   net_verbatim;              // if true, send the original message, not the CRC-corrected one
@@ -348,7 +385,6 @@ struct {                             // Internal state
     int   quiet;                     // Suppress stdout
     uint32_t show_only;              // Only show messages from this ICAO
     int   interactive;               // Interactive mode
-    int   interactive_rows;          // Interactive mode: max number of rows
     uint64_t interactive_display_ttl;// Interactive mode: TTL display
     uint64_t stats;                  // Interval (millis) between stats dumps,
     int   stats_range_histo;         // Collect/show a range histogram?
@@ -356,12 +392,9 @@ struct {                             // Internal state
     int   metric;                    // Use metric units
     int   use_gnss;                  // Use GNSS altitudes with H suffix ("HAE", though it isn't always) when available
     int   mlat;                      // Use Beast ascii format for raw data output, i.e. @...; iso *...;
-    int   interactive_rtl1090;       // flight table in interactive mode is formatted like RTL1090
     char *json_dir;                  // Path to json base directory, or NULL not to write json.
     uint64_t json_interval;          // Interval between rewriting the json aircraft file, in milliseconds; also the advertised map refresh interval
-    char *html_dir;                  // Path to www base directory.
     int   json_location_accuracy;    // Accuracy of location metadata: 0=none, 1=approx, 2=exact
-    int   throttle;                  // When reading from a file, throttle file playback to realtime?
 
     int   json_aircraft_history_next;
     struct {
@@ -372,6 +405,7 @@ struct {                             // Internal state
     // User details
     double fUserLat;                // Users receiver/antenna lat/lon needed for initial surface location
     double fUserLon;                // Users receiver/antenna lat/lon needed for initial surface location
+    double fUserAltM;               // Users receiver/antenna altitude in meters
     int    bUserFlags;              // Flags relating to the user details
     double maxRange;                // Absolute maximum decoding range, in *metres*
 
@@ -386,7 +420,9 @@ struct {                             // Internal state
     int stats_latest_1min;
     struct stats stats_5min;
     struct stats stats_15min;
-} Modes;
+};
+
+extern struct modes_t Modes;
 
 // The struct we use to store information about a decoded message.
 struct modesMessage {
@@ -403,6 +439,7 @@ struct modesMessage {
     uint64_t      timestampMsg;                   // Timestamp of the message (12MHz clock)
     double        hpTimestampMsg;                // High-precision Timestamp of the message (IPSN'18 at R. Calvo-Palomino)
     struct timespec sysTimestampMsg;              // Timestamp of the message (system time)
+    //uint64_t      sysTimestampMsg;                // Timestamp of the message (system time)
     int           remote;                         // If set this message is from a remote station
     double        signalLevel;                    // RSSI, in the range [0..1], as a fraction of full-scale power
     int           score;                          // Scoring from scoreModesMessage, if used
@@ -432,62 +469,111 @@ struct modesMessage {
     unsigned char MV[7];
 
     // Decoded data
-    unsigned altitude_valid : 1;
+    unsigned altitude_baro_valid : 1;
+    unsigned altitude_geom_valid : 1;
+    unsigned track_valid : 1;
+    unsigned track_rate_valid : 1;
     unsigned heading_valid : 1;
-    unsigned speed_valid : 1;
-    unsigned vert_rate_valid : 1;
+    unsigned roll_valid : 1;
+    unsigned gs_valid : 1;
+    unsigned ias_valid : 1;
+    unsigned tas_valid : 1;
+    unsigned mach_valid : 1;
+    unsigned baro_rate_valid : 1;
+    unsigned geom_rate_valid : 1;
     unsigned squawk_valid : 1;
     unsigned callsign_valid : 1;
-    unsigned ew_velocity_valid : 1;
-    unsigned ns_velocity_valid : 1;
     unsigned cpr_valid : 1;
     unsigned cpr_odd : 1;
     unsigned cpr_decoded : 1;
     unsigned cpr_relative : 1;
     unsigned category_valid : 1;
-    unsigned gnss_delta_valid : 1;
+    unsigned geom_delta_valid : 1;
     unsigned from_mlat : 1;
     unsigned from_tisb : 1;
     unsigned spi_valid : 1;
     unsigned spi : 1;
     unsigned alert_valid : 1;
     unsigned alert : 1;
+    unsigned emergency_valid : 1;
 
     unsigned metype; // DF17/18 ME type
     unsigned mesub;  // DF17/18 ME subtype
 
-    // valid if altitude_valid:
-    int               altitude;         // Altitude in either feet or meters
-    altitude_unit_t   altitude_unit;    // the unit used for altitude
-    altitude_source_t altitude_source;  // whether the altitude is a barometric altude or a GNSS height
-    // valid if gnss_delta_valid:
-    int               gnss_delta;       // difference between GNSS and baro alt
-    // valid if heading_valid:
-    unsigned          heading;          // Reported by aircraft, or computed from from EW and NS velocity
-    heading_source_t  heading_source;   // what "heading" is measuring (true or magnetic heading)
-    // valid if speed_valid:
-    unsigned          speed;            // in kts, reported by aircraft, or computed from from EW and NS velocity
-    speed_source_t    speed_source;     // what "speed" is measuring (groundspeed / IAS / TAS)
-    // valid if vert_rate_valid:
-    int               vert_rate;        // vertical rate in feet/minute
-    altitude_source_t vert_rate_source; // the altitude source used for vert_rate
-    // valid if squawk_valid:
-    unsigned          squawk;           // 13 bits identity (Squawk), encoded as 4 hex digits
-    // valid if callsign_valid
-    char              callsign[9];      // 8 chars flight number
-    // valid if category_valid
-    unsigned category;          // A0 - D7 encoded as a single hex byte
-    // valid if cpr_valid
-    cpr_type_t cpr_type;        // The encoding type used (surface, airborne, coarse TIS-B)
-    unsigned cpr_lat;           // Non decoded latitude.
-    unsigned cpr_lon;           // Non decoded longitude.
-    unsigned cpr_nucp;          // NUCp/NIC value implied by message type
+    commb_format_t commb_format; // Inferred format of a comm-b message
 
-    airground_t airground;      // air/ground state
+    // valid if altitude_baro_valid:
+    int               altitude_baro;       // Altitude in either feet or meters
+    altitude_unit_t   altitude_baro_unit;  // the unit used for altitude
+
+    // valid if altitude_geom_valid:
+    int               altitude_geom;       // Altitude in either feet or meters
+    altitude_unit_t   altitude_geom_unit;  // the unit used for altitude
+
+    // following fields are valid if the corresponding _valid field is set:
+    int      geom_delta;        // Difference between geometric and baro alt
+    float    heading;           // ground track or heading, degrees (0-359). Reported directly or computed from from EW and NS velocity
+    heading_type_t heading_type;// how to interpret 'track_or_heading'
+    float    track_rate;        // Rate of change of track, degrees/second
+    float    roll;              // Roll, degrees, negative is left roll
+    struct {
+        // Groundspeed, kts, reported directly or computed from from EW and NS velocity
+        // For surface movement, this has different interpretations for v0 and v2; both
+        // fields are populated. The tracking layer will update "gs.selected".
+        float v0;
+        float v2;
+        float selected;
+    } gs;
+    unsigned ias;               // Indicated airspeed, kts
+    unsigned tas;               // True airspeed, kts
+    double   mach;              // Mach number
+    int      baro_rate;         // Rate of change of barometric altitude, feet/minute
+    int      geom_rate;         // Rate of change of geometric (GNSS / INS) altitude, feet/minute
+    unsigned squawk;            // 13 bits identity (Squawk), encoded as 4 hex digits
+    char     callsign[9];       // 8 chars flight number, NUL-terminated
+    unsigned category;          // A0 - D7 encoded as a single hex byte
+    emergency_t emergency;      // emergency/priority status
+
+    // valid if cpr_valid
+    cpr_type_t cpr_type;       // The encoding type used (surface, airborne, coarse TIS-B)
+    unsigned   cpr_lat;        // Non decoded latitude.
+    unsigned   cpr_lon;        // Non decoded longitude.
+    unsigned   cpr_nucp;       // NUCp/NIC value implied by message type
+
+    airground_t airground;     // air/ground state
 
     // valid if cpr_decoded:
     double decoded_lat;
     double decoded_lon;
+    unsigned decoded_nic;
+    unsigned decoded_rc;
+
+    // various integrity/accuracy things
+    struct {
+        unsigned nic_a_valid : 1;
+        unsigned nic_b_valid : 1;
+        unsigned nic_c_valid : 1;
+        unsigned nic_baro_valid : 1;
+        unsigned nac_p_valid : 1;
+        unsigned nac_v_valid : 1;
+        unsigned gva_valid : 1;
+        unsigned sda_valid : 1;
+
+        unsigned nic_a : 1;        // if nic_a_valid
+        unsigned nic_b : 1;        // if nic_b_valid
+        unsigned nic_c : 1;        // if nic_c_valid
+        unsigned nic_baro : 1;     // if nic_baro_valid
+
+        unsigned nac_p : 4;        // if nac_p_valid
+        unsigned nac_v : 3;        // if nac_v_valid
+
+        unsigned sil : 2;          // if sil_type != SIL_INVALID
+        sil_type_t sil_type;
+
+        unsigned gva : 2;          // if gva_valid
+
+        unsigned sda : 2;          // if sda_valid
+    } accuracy;
 
     // Operational Status
     struct {
@@ -498,7 +584,6 @@ struct modesMessage {
         unsigned om_ident : 1;
         unsigned om_atc : 1;
         unsigned om_saf : 1;
-        unsigned om_sda : 2;
 
         unsigned cc_acas : 1;
         unsigned cc_cdti : 1;
@@ -509,46 +594,35 @@ struct modesMessage {
         unsigned cc_uat_in : 1;
         unsigned cc_poa : 1;
         unsigned cc_b2_low : 1;
-        unsigned cc_nac_v : 3;
-        unsigned cc_nic_supp_c : 1;
         unsigned cc_lw_valid : 1;
 
-        unsigned nic_supp_a : 1;
-        unsigned nac_p : 4;
-        unsigned gva : 2;
-        unsigned sil : 2;
-        unsigned nic_baro : 1;
-
-        sil_type_t sil_type;
-        enum { ANGLE_HEADING, ANGLE_TRACK } track_angle;
-        heading_source_t hrd;
+        heading_type_t tah;
+        heading_type_t hrd;
 
         unsigned cc_lw;
         unsigned cc_antenna_offset;
     } opstatus;
 
-    // Target State & Status (ADS-B V2 only)
+    // combined:
+    //   Target State & Status (ADS-B V2 only)
+    //   Comm-B BDS4,0 Vertical Intent
     struct {
-        unsigned valid : 1;
-        unsigned altitude_valid : 1;
-        unsigned baro_valid : 1;
         unsigned heading_valid : 1;
-        unsigned mode_valid : 1;
-        unsigned mode_autopilot : 1;
-        unsigned mode_vnav : 1;
-        unsigned mode_alt_hold : 1;
-        unsigned mode_approach : 1;
-        unsigned acas_operational : 1;
-        unsigned nac_p : 4;
-        unsigned nic_baro : 1;
-        unsigned sil : 2;
+        unsigned fms_altitude_valid : 1;
+        unsigned mcp_altitude_valid : 1;
+        unsigned qnh_valid : 1;
+        unsigned modes_valid : 1;
 
-        sil_type_t sil_type;
-        enum { TSS_ALTITUDE_MCP, TSS_ALTITUDE_FMS } altitude_type;
-        unsigned altitude;
-        float baro;
-        unsigned heading;
-    } tss;
+        float    heading;       // heading, degrees (0-359) (could be magnetic or true heading; magnetic recommended)
+        heading_type_t heading_type;
+        unsigned fms_altitude;  // FMS selected altitude
+        unsigned mcp_altitude;  // MCP/FCU selected altitude
+        float    qnh;           // altimeter setting (QFE or QNH/QNE), millibars
+
+        nav_altitude_source_t altitude_source;
+
+        nav_modes_t modes;
+    } nav;
 };
 
 struct queueMessage {
@@ -568,6 +642,8 @@ struct queueMessage {
 
 // This one needs modesMessage:
 #include "track.h"
+#include "mode_s.h"
+#include "comm_b.h"
 
 // ======================== function declarations =========================
 
@@ -580,20 +656,46 @@ extern "C" {
 //
 int  detectModeA       (uint16_t *m, struct modesMessage *mm);
 void decodeModeAMessage(struct modesMessage *mm, int ModeA);
-int  ModeAToModeC      (unsigned int ModeA);
+void modeACInit();
+int modeAToModeC (unsigned int modeA);
+unsigned modeCToModeA (int modeC);
 
-//
-// Functions exported from mode_s.c
-//
-int modesMessageLenByType(int type);
-int scoreModesMessage(unsigned char *msg, int validbits);
-int decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
-void displayModesMessage(struct modesMessage *mm);
-void useModesMessage    (struct modesMessage *mm);
 //
 // Functions exported from interactive.c
 //
+void  interactiveInit(void);
 void  interactiveShowData(void);
+void  interactiveCleanup(void);
+
+void log_with_timestamp(const char *format, ...) __attribute__((format (printf, 1, 2) ));
+
+// Provided by dump1090.c / view1090.c / faup1090.c
+void dump1090ReceiverPositionChanged(float lat, float lon, float alt);
+void faup1090ReceiverPositionChanged(float lat, float lon, float alt);
+void view1090ReceiverPositionChanged(float lat, float lon, float alt);
+void receiverPositionChanged(float lat, float lon, float alt);
+
+void faupInitConfig(void);
+void faupInit(void);
+void faupBackgroundTasks(void);
+
+void view1090InitConfig(void);
+void view1090Init(void);
+
+void modesInitConfig(void);
+void modesInit(void);
+void modesInitStats(void);
+void *readerThreadEntryPoint(void *arg);
+void snipMode(int level);
+void display_total_stats(void);
+void mainLoopNetOnly(void);
+void mainLoopSdr(void);
+void backgroundTasks(void);
+void install_signal_handlers(bool reset);
+
+int dump1090main(int argc, char **argv);
+int faup1090main(int argc, char **argv);
+int view1090main(int argc, char **argv);
 
 #ifdef __cplusplus
 }

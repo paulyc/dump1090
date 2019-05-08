@@ -4,21 +4,27 @@
 //
 // Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "dump1090.h"
 #include "hp-toa/manager.h"
+
+#include <assert.h>
+
+#ifdef MODEAC_DEBUG
+#include <gd.h>
+#endif
 
 // 2.4MHz sampling rate version
 //
@@ -37,29 +43,20 @@
 // nb: the correlation functions sum to zero, so we do not need to adjust for the DC offset in the input signal
 // (adding any constant value to all of m[0..3] does not change the result)
 
-static inline int slice_phase0(uint16_t *m) {
-    return 5 * m[0] - 3 * m[1] - 2 * m[2];
+static inline bool slice_phase0(const mag_data_t *const m) {
+    return (5.0 * m[0] - 3.0 * m[1] - 2.0 * m[2]) > 0.0;
 }
-static inline int slice_phase1(uint16_t *m) {
-    return 4 * m[0] - m[1] - 3 * m[2];
+static inline bool slice_phase1(const mag_data_t *const m) {
+    return (4.0 * m[0] - m[1] - 3.0 * m[2]) > 0.0;
 }
-static inline int slice_phase2(uint16_t *m) {
-    return 3 * m[0] + m[1] - 4 * m[2];
+static inline bool slice_phase2(const mag_data_t *const m) {
+    return (3.0 * m[0] + m[1] - 4.0 * m[2]) > 0.0;
 }
-static inline int slice_phase3(uint16_t *m) {
-    return 2 * m[0] + 3 * m[1] - 5 * m[2];
+static inline bool slice_phase3(const mag_data_t *const m) {
+    return (2.0 * m[0] + 3.0 * m[1] - 5.0 * m[2]) > 0.0;
 }
-static inline int slice_phase4(uint16_t *m) {
-    return m[0] + 5 * m[1] - 5 * m[2] - m[3];
-}
-
-static inline  __attribute__((always_inline)) unsigned getbit(unsigned char *data, unsigned bitnum)
-{
-     unsigned bi = bitnum - 1;
-     unsigned by = bi >> 3;
-     unsigned mask = 1 << (7 - (bi & 7));
-
-     return (data[by] & mask) != 0;
+static inline bool slice_phase4(const mag_data_t *const m) {
+    return (m[0] + 5.0 * m[1] - 5.0 * m[2] - m[3]) > 0.0;
 }
 
 int total_IQ = 0;
@@ -72,25 +69,21 @@ void demodulate2400(struct mag_buf *mag)
 {
     static struct modesMessage zeroMessage;
     struct modesMessage mm;
-    unsigned char msg1[MODES_LONG_MSG_BYTES], msg2[MODES_LONG_MSG_BYTES], *msg;
-    uint32_t j;
+    uint8_t msg1[MODES_LONG_MSG_BYTES], msg2[MODES_LONG_MSG_BYTES], *msg;
 
-    unsigned char *bestmsg;
+    uint8_t *bestmsg;
     int bestscore, bestphase;
 
-    uint16_t *m = mag->data;
-    uint32_t mlen = mag->length;
+    const mag_data_t *const m = mag->data;
+    const uint32_t mlen = mag->length;
 
-    uint64_t sum_scaled_signal_power = 0;
+    internal_float_t sum_signal_power = 0.0;
 
     msg = msg1;
 
     total_IQ = total_IQ + mlen;
 
-    for (j = 0; j < mlen; j++) {
-        uint16_t *preamble = &m[j];
-        int high;
-        uint32_t base_signal, base_noise;
+    for (uint32_t j = 0; j < mlen; j++) {
         int try_phase;
         int msglen;
 
@@ -106,7 +99,7 @@ void demodulate2400(struct mag_buf *mag)
         // phase 6: 0/4\2 2/4\0 0 0 0 2/4\0/5\1 0 0 0 0 0 0 X2
         // phase 7: 0/3 3\1/5\0 0 0 0 1/5\0/4\2 0 0 0 0 0 0 X3
         //
-        
+
         // quick check: we must have a rising edge 0->1 and a falling edge 12->13
         if (! (preamble[0] < preamble[1] && preamble[12] > preamble[13]) )
            continue;
@@ -157,7 +150,7 @@ void demodulate2400(struct mag_buf *mag)
         }
 
         // Check for enough signal
-        if (base_signal * 2 < 3 * base_noise) // about 3.5dB SNR
+        if (base_signal * 2.0 < 3.0 * base_noise) // about 3.5dB SNR
             continue;
 
         // Check that the "quiet" bits 6,7,15,16,17 are actually quiet
@@ -177,12 +170,12 @@ void demodulate2400(struct mag_buf *mag)
         Modes.stats_current.demod_preambles++;
         bestmsg = NULL; bestscore = -2; bestphase = -1;
         for (try_phase = 4; try_phase <= 8; ++try_phase) {
-            uint16_t *pPtr;
+            const mag_data_t *pPtr;
             int phase, i, score, bytelen;
 
             // Decode all the next 112 bits, regardless of the actual message
             // size. We'll check the actual message type later
-            
+
             pPtr = &m[j+19] + (try_phase/5);
             phase = try_phase % 5;
 
@@ -192,76 +185,76 @@ void demodulate2400(struct mag_buf *mag)
 
                 switch (phase) {
                 case 0:
-                    theByte = 
-                        (slice_phase0(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase2(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase4(pPtr+4) > 0 ? 0x20 : 0) |
-                        (slice_phase1(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase3(pPtr+9) > 0 ? 0x08 : 0) |
-                        (slice_phase0(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase2(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase4(pPtr+16) > 0 ? 0x01 : 0);
+                    theByte =
+                        (slice_phase0(pPtr) ? 0x80 : 0) |
+                        (slice_phase2(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase4(pPtr+4) ? 0x20 : 0) |
+                        (slice_phase1(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase3(pPtr+9) ? 0x08 : 0) |
+                        (slice_phase0(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase2(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase4(pPtr+16) ? 0x01 : 0);
 
 
                     phase = 1;
                     pPtr += 19;
                     break;
-                    
+
                 case 1:
                     theByte =
-                        (slice_phase1(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase3(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase0(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase2(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase4(pPtr+9) > 0 ? 0x08 : 0) |
-                        (slice_phase1(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase3(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase0(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase1(pPtr) ? 0x80 : 0) |
+                        (slice_phase3(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase0(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase2(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase4(pPtr+9) ? 0x08 : 0) |
+                        (slice_phase1(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase3(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase0(pPtr+17) ? 0x01 : 0);
 
                     phase = 2;
                     pPtr += 19;
                     break;
-                    
+
                 case 2:
                     theByte =
-                        (slice_phase2(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase4(pPtr+2) > 0 ? 0x40 : 0) |
-                        (slice_phase1(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase3(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase0(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase2(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase4(pPtr+14) > 0 ? 0x02 : 0) |
-                        (slice_phase1(pPtr+17) > 0 ? 0x01 : 0);
+                        (slice_phase2(pPtr) ? 0x80 : 0) |
+                        (slice_phase4(pPtr+2) ? 0x40 : 0) |
+                        (slice_phase1(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase3(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase0(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase2(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase4(pPtr+14) ? 0x02 : 0) |
+                        (slice_phase1(pPtr+17) ? 0x01 : 0);
 
                     phase = 3;
                     pPtr += 19;
                     break;
-                    
+
                 case 3:
-                    theByte = 
-                        (slice_phase3(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase0(pPtr+3) > 0 ? 0x40 : 0) |
-                        (slice_phase2(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase4(pPtr+7) > 0 ? 0x10 : 0) |
-                        (slice_phase1(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase3(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase0(pPtr+15) > 0 ? 0x02 : 0) |
-                        (slice_phase2(pPtr+17) > 0 ? 0x01 : 0);
+                    theByte =
+                        (slice_phase3(pPtr) ? 0x80 : 0) |
+                        (slice_phase0(pPtr+3) ? 0x40 : 0) |
+                        (slice_phase2(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase4(pPtr+7) ? 0x10 : 0) |
+                        (slice_phase1(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase3(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase0(pPtr+15) ? 0x02 : 0) |
+                        (slice_phase2(pPtr+17) ? 0x01 : 0);
 
                     phase = 4;
                     pPtr += 19;
                     break;
-                    
+
                 case 4:
-                    theByte = 
-                        (slice_phase4(pPtr) > 0 ? 0x80 : 0) |
-                        (slice_phase1(pPtr+3) > 0 ? 0x40 : 0) |
-                        (slice_phase3(pPtr+5) > 0 ? 0x20 : 0) |
-                        (slice_phase0(pPtr+8) > 0 ? 0x10 : 0) |
-                        (slice_phase2(pPtr+10) > 0 ? 0x08 : 0) |
-                        (slice_phase4(pPtr+12) > 0 ? 0x04 : 0) |
-                        (slice_phase1(pPtr+15) > 0 ? 0x02 : 0) |
-                        (slice_phase3(pPtr+17) > 0 ? 0x01 : 0);
+                    theByte =
+                        (slice_phase4(pPtr) ? 0x80 : 0) |
+                        (slice_phase1(pPtr+3) ? 0x40 : 0) |
+                        (slice_phase3(pPtr+5) ? 0x20 : 0) |
+                        (slice_phase0(pPtr+8) ? 0x10 : 0) |
+                        (slice_phase2(pPtr+10) ? 0x08 : 0) |
+                        (slice_phase4(pPtr+12) ? 0x04 : 0) |
+                        (slice_phase1(pPtr+15) ? 0x02 : 0) |
+                        (slice_phase3(pPtr+17) ? 0x01 : 0);
 
                     phase = 0;
                     pPtr += 20;
@@ -273,8 +266,8 @@ void demodulate2400(struct mag_buf *mag)
                     switch (msg[0] >> 3) {
                     case 0: case 4: case 5: case 11:
                         bytelen = MODES_SHORT_MSG_BYTES; break;
-                        
-                    case 16: case 17: case 18: case 20: case 21: case 24:
+
+                    case 16: case 17: case 18: case 19: case 20: case 21: case 24:
                         break;
 
                     default:
@@ -291,7 +284,7 @@ void demodulate2400(struct mag_buf *mag)
                 bestmsg = msg;
                 bestscore = score;
                 bestphase = try_phase;
-                
+
                 // swap to using the other buffer so we don't clobber our demodulated data
                 // (if we find a better result then we'll swap back, but that's OK because
                 // we no longer need this copy if we found a better one)
@@ -312,12 +305,14 @@ void demodulate2400(struct mag_buf *mag)
 
         // Set initial mm structure details
         mm = zeroMessage;
-        mm.timestampMsg = mag->sampleTimestamp + (j*5) + bestphase;
+
+        // For consistency with how the Beast / Radarcape does it,
+        // we report the timestamp at the end of bit 56 (even if
+        // the frame is a 112-bit frame)
+        mm.timestampMsg = mag->sampleTimestamp + j*5 + (8 + 56) * 12 + bestphase;
 
         // compute message receive time as block-start-time + difference in the 12MHz clock
-        mm.sysTimestampMsg = mag->sysTimestamp; // start of block time
-        mm.sysTimestampMsg.tv_nsec += receiveclock_ns_elapsed(mag->sampleTimestamp, mm.timestampMsg);
-        normalize_timespec(&mm.sysTimestampMsg);
+        mm.sysTimestampMsg = mag->sysTimestamp + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg);
 
         mm.score = bestscore;
 
@@ -337,21 +332,18 @@ void demodulate2400(struct mag_buf *mag)
 
         // measure signal power
         {
-            double signal_power;
-            uint64_t scaled_signal_power = 0;
+            internal_float_t signal_power = 0.0;
             int signal_len = msglen*12/5;
-            int k;
 
-            for (k = 0; k < signal_len; ++k) {
-                uint32_t mag = m[j+19+k];
-                scaled_signal_power += mag * mag;
+            for (int k = 0; k < signal_len; ++k) {
+                const mag_data_t mag = m[j+19+k];
+                signal_power += mag * mag;
             }
 
-            signal_power = scaled_signal_power / 65535.0 / 65535.0;
             mm.signalLevel = signal_power / signal_len;
             Modes.stats_current.signal_power_sum += signal_power;
             Modes.stats_current.signal_power_count += signal_len;
-            sum_scaled_signal_power += scaled_signal_power;
+            sum_signal_power += signal_power;
 
             if (mm.signalLevel > Modes.stats_current.peak_signal_power)
                 Modes.stats_current.peak_signal_power = mm.signalLevel;
@@ -403,17 +395,101 @@ void demodulate2400(struct mag_buf *mag)
 
     /* update noise power */
     {
-        double sum_signal_power = sum_scaled_signal_power / 65535.0 / 65535.0;
-        Modes.stats_current.noise_power_sum += (mag->total_power - sum_signal_power);
+        Modes.stats_current.noise_power_sum += (mag->mean_power * mag->length - sum_signal_power);
         Modes.stats_current.noise_power_count += mag->length;
     }
 }
 
+#ifdef MODEAC_DEBUG
 
+static int yscale(unsigned signal)
+{
+    return (int) (299 - 299.0 * signal / 65536.0);
+}
+
+static void draw_modeac(uint16_t *m, unsigned modeac, unsigned f1_clock, unsigned noise_threshold, unsigned signal_threshold, unsigned bits, unsigned noisy_bits, unsigned uncertain_bits)
+{
+    // 25 bits at 87*60MHz
+    // use 1 pixel = 30MHz = 1087 pixels
+
+    gdImagePtr im = gdImageCreate(1088, 300);
+    int red = gdImageColorAllocate(im, 255, 0, 0);
+    int brightgreen = gdImageColorAllocate(im, 0, 255, 0);
+    int darkgreen = gdImageColorAllocate(im, 0, 180, 0);
+    int blue = gdImageColorAllocate(im, 0, 0, 255);
+    int grey = gdImageColorAllocate(im, 200, 200, 200);
+    int white = gdImageColorAllocate(im, 255, 255, 255);
+    int black = gdImageColorAllocate(im, 0, 0, 0);
+
+    gdImageFilledRectangle(im, 0, 0, 1087, 299, white);
+
+    // draw samples
+    for (unsigned pixel = 0; pixel < 1088; ++pixel) {
+        int clock_offset = (pixel - 150) * 2;
+        int bit = clock_offset / 87;
+        int sample = (f1_clock + clock_offset) / 25;
+        int bitoffset = clock_offset % 87;
+        int color;
+
+        if (sample < 0)
+            continue;
+
+        if (clock_offset < 0 || bit >= 20) {
+            color = grey;
+        } else if (bitoffset < 27 && (uncertain_bits & (1 << (19-bit)))) {
+            color = red;
+        } else if (bitoffset >= 27 && (noisy_bits & (1 << (19-bit)))) {
+            color = red;
+        } else if (bitoffset >= 27) {
+            color = grey;
+        } else if (bits & (1 << (19-bit))) {
+            color = brightgreen;
+        } else {
+            color = darkgreen;
+        }
+
+        gdImageLine(im, pixel, 299, pixel, yscale(m[sample]), color);
+    }
+
+    // draw bit boundaries
+    for (unsigned bit = 0; bit < 20; ++bit) {
+        unsigned clock = 87 * bit;
+        unsigned pixel0 = clock / 2 + 150;
+        unsigned pixel1 = (clock + 27) / 2 + 150;
+
+        gdImageLine(im, pixel0, 0, pixel0, 299, (bit == 0 || bit == 14) ? black : grey);
+        gdImageLine(im, pixel1, 0, pixel1, 299, (bit == 0 || bit == 14) ? black : grey);
+    }
+
+    // draw thresholds
+    gdImageLine(im, 0, yscale(noise_threshold), 1087, yscale(noise_threshold), blue);
+    gdImageLine(im, 0, yscale(signal_threshold), 1087, yscale(signal_threshold), blue);
+
+    // save it
+
+    static int file_counter;
+    char filename[PATH_MAX];
+    sprintf(filename, "modeac_%04X_%04d.png", modeac, ++file_counter);
+    fprintf(stderr, "writing %s\n", filename);
+
+    FILE *pngout = fopen(filename, "wb");
+    gdImagePng(im, pngout);
+    fclose(pngout);
+    gdImageDestroy(im);
+}
+
+#endif
 
 //////////
 ////////// MODE A/C
 //////////
+
+//static const double virtualClockFrequency = 60e6;
+//static const double virtualClockPeriod = 1.0 / virtualClockFrequency;
+//static const double bitClockFrequency = 12e6;
+//static const double bitClockPeriod = 1.0 / bitClockFrequency;
+static const int cyclesPerModeACBitPeriod = 87;
+static const int cyclesPerSample = 25;
 
 // Mode A/C bits are 1.45us wide, consisting of 0.45us on and 1.0us off
 // We track this in terms of a (virtual) 60MHz clock, which is the lowest common multiple
@@ -423,17 +499,19 @@ void demodulate2400(struct mag_buf *mag)
 //            1.00us = 60 cycles } one bit period = 1.45us = 87 cycles
 //
 // one 2.4MHz sample = 25 cycles
-
 void demodulate2400AC(struct mag_buf *mag)
 {
     struct modesMessage mm;
-    uint16_t *m = mag->data;
-    uint32_t mlen = mag->length;
-    unsigned f1_sample;
+    const mag_data_t *const m = mag->data;
+    const uint32_t mlen = mag->length;
 
     memset(&mm, 0, sizeof(mm));
 
-    for (f1_sample = 1; f1_sample < mlen; ++f1_sample) {
+    const internal_float_t noise_stddev = sqrt(mag->mean_power - mag->mean_level * mag->mean_level); // Var(X) = E[(X-E[X])^2] = E[X^2] - (E[X])^2
+    const internal_float_t noise_level = mag->mean_power + noise_stddev;
+    const internal_float_t noise_level_plus_6dB = noise_level * 2.0;
+
+    for (uint32_t f1_sample = 1; f1_sample < mlen; ++f1_sample) {
         // Mode A/C messages should match this bit sequence:
 
         // bit #     value
@@ -458,10 +536,6 @@ void demodulate2400AC(struct mag_buf *mag)
         //   17     SPI
         //   18       0    quiet zone (X4)
         //   19       0    quiet zone (X5)
-        //   20       0    quiet zone (X6)
-        //   21       0    quiet zone (X7)
-        //   22       0    quiet zone (X8)
-        //   23       0    quiet zone (X9)
 
         // Look for a F1 and F2 pair,
         // with F1 starting at offset f1_sample.
@@ -491,26 +565,26 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f1_sample+2] > m[f1_sample+0] || m[f1_sample+2] > m[f1_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        unsigned f1_noise = (m[f1_sample-1] + m[f1_sample+2]) / 2;
-        unsigned f1_signal = (m[f1_sample+0] + m[f1_sample+1]) / 2;
+        const internal_float_t f1_level = (m[f1_sample+0] + m[f1_sample+1]) * 0.5;
 
-        if (f1_noise * 4 > f1_signal) {
-            // require 12dB SNR
+        if (noise_level_plus_6dB > f1_level) {
+            // require 6dB above noise
             continue;
         }
 
         // estimate initial clock phase based on the amount of power
         // that ended up in the second sample
-        unsigned f1_clock = 25 * f1_sample;
-        if (m[f1_sample+1] > f1_noise) {
-            f1_clock += 25 * (m[f1_sample+1] - f1_noise) / (2*(f1_signal - f1_noise));
-        }
+
+        const internal_float_t f1a_power = m[f1_sample] * m[f1_sample];
+        const internal_float_t f1b_power = m[f1_sample+1] * m[f1_sample+1];
+        const internal_float_t fraction = f1b_power / (f1a_power + f1b_power);
+        const long f1_clock = lround(cyclesPerSample * (f1_sample + fraction * fraction));
 
         // same again for F2
         // F2 is 20.3us / 14 bit periods after F1
-
-        unsigned f2_clock = f1_clock + (87 * 14);
-        unsigned f2_sample = f2_clock / 25;
+        const long f2_clock = f1_clock + (cyclesPerModeACBitPeriod * 14L);
+        const long f2_sample = f2_clock / cyclesPerSample;
+        assert(f2_sample < mlen + MODES_TRAILING_SAMPLES);
 
         if (!(m[f2_sample-1] < m[f2_sample+0]))
             continue;
@@ -518,189 +592,97 @@ void demodulate2400AC(struct mag_buf *mag)
         if (m[f2_sample+2] > m[f2_sample+0] || m[f2_sample+2] > m[f2_sample+1])
             continue;      // quiet part of bit wasn't sufficiently quiet
 
-        unsigned f2_noise = (m[f2_sample-1] + m[f2_sample+2]) / 2;
-        unsigned f2_signal = (m[f2_sample+0] + m[f2_sample+1]) / 2;
+        internal_float_t f2_level = (m[f2_sample+0] + m[f2_sample+1]) * 0.5;
 
-        if (f2_noise * 4 > f2_signal) {
-            // require 12dB SNR
+        if (noise_level_plus_6dB > f2_level) {
+            // require 6dB above noise
             continue;
         }
 
-        unsigned f1f2_signal = (f1_signal + f2_signal) / 2;
+        const internal_float_t f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
 
-        // look at X1, X2, X3 which should be quiet
-        // (sample 0 may have part of the previous bit, but
-        // it always covers the quiet part of it)
-        unsigned x1_clock = f1_clock + (87 * 7);
-        unsigned x1_sample = x1_clock / 25;
-        unsigned x1_noise = (m[x1_sample + 0] + m[x1_sample + 1] + m[x1_sample + 2]) / 3;
-        if (x1_noise * 4 >= f1f2_signal)
-            continue;
-
-        unsigned x2_clock = f1_clock + (87 * 15);
-        unsigned x2_sample = x2_clock / 25;
-        unsigned x2_noise = (m[x2_sample + 0] + m[x2_sample + 1] + m[x2_sample + 2]) / 3;
-        if (x2_noise * 4 >= f1f2_signal)
-            continue;
-
-        unsigned x3_clock = f1_clock + (87 * 16);
-        unsigned x3_sample = x3_clock / 25;
-        unsigned x3_noise = (m[x3_sample + 0] + m[x3_sample + 1] + m[x3_sample + 2]) / 3;
-        if (x3_noise * 4 >= f1f2_signal)
-            continue;
-
-        unsigned x1x2x3_noise = (x1_noise + x2_noise + x3_noise) / 3;
-        if (x1x2x3_noise * 4 >= f1f2_signal) // require 12dB separation
-            continue;
-
-        //  ----- F1/F2 average signal
-        //   ^
-        //   | at least 3dB
-        //   v
-        //  ----- minimum signal level we accept as "on"
-        //   ^
-        //   | 3dB
-        //   v
-        //  ---- midpoint between F1/F2 and X1/X2/X3
-        //   ^
-        //   | 3dB
-        //   v
-        //  ----- maximum signal level we accept as "off"
-        //   ^
-        //   | at least 3dB
-        //   v
-        //  ----- X1/X2/X3 average noise
-
-        float midpoint = sqrtf(x1x2x3_noise * f1f2_signal); // so that signal/midpoint == midpoint/noise
-        unsigned quiet_threshold = (unsigned) midpoint;
-        unsigned noise_threshold = (unsigned) (midpoint * 0.707107 + 0.5); // -3dB from midpoint
-        unsigned signal_threshold = (unsigned) (midpoint * 1.414214 + 0.5); // +3dB from midpoint
-
-#if 0
-        fprintf(stderr, "f1f2 %u x1x2x3 %u midpoint %.0f noise_threshold %u signal_threshold %u\n",
-                f1f2_signal, x1x2x3_noise, midpoint, noise_threshold, signal_threshold);
-
-        fprintf(stderr, "f1 %u f2 %u x1 %u x2 %u x3 %u\n",
-                f1_signal, f2_signal, x1_noise, x2_noise, x3_noise);
-#endif
-
-        // recheck F/X bits just in case
-        if (f1_signal < signal_threshold)
-            continue;
-        if (f2_signal < signal_threshold)
-            continue;
-        if (x1_noise > noise_threshold)
-            continue;
-        if (x2_noise > noise_threshold)
-            continue;
-        if (x3_noise > noise_threshold)
-            continue;
+        const internal_float_t midpoint = sqrt(noise_level * f1f2_level); // geometric mean of the two levels
+        const internal_float_t signal_threshold = midpoint * M_SQRT2; // +3dB
+        const internal_float_t noise_threshold = midpoint * M_SQRT1_2;  // -3dB
 
         // Looks like a real signal. Demodulate all the bits.
-        unsigned noisy_bits = 0;
-        unsigned bits = 0;
-        unsigned bit;
-        unsigned clock;
-        for (bit = 0, clock = f1_clock; bit < 24; ++bit, clock += 87) {
-            unsigned sample = clock / 25;
+        long uncertain_bits = 0;
+        long noisy_bits = 0;
+        long bits = 0;
+
+        for (long bit = 0, clock = f1_clock; bit < 20L; ++bit, clock += cyclesPerModeACBitPeriod) {
+            long sample = clock / cyclesPerSample;
 
             bits <<= 1;
             noisy_bits <<= 1;
+            uncertain_bits <<= 1;
 
             // check for excessive noise in the quiet period
-            if (m[sample+2] >= quiet_threshold) {
-                //fprintf(stderr, "bit %u was not quiet (%u > %u)\n", bit, m[sample+2], quiet_threshold);
+            if (m[sample+2] >= signal_threshold) {
                 noisy_bits |= 1;
-                continue;
             }
 
             // decide if this bit is on or off
-            unsigned bit_signal = (m[sample+0] + m[sample+1]) / 2;
-            if (bit_signal >= signal_threshold) {
+            if (m[sample+0] >= signal_threshold || m[sample+1] >= signal_threshold) {
                 bits |= 1;
-            } else if (bit_signal > noise_threshold) {
+            } else if (m[sample+0] > noise_threshold && m[sample+1] > noise_threshold) {
                 /* not certain about this bit */
-                //fprintf(stderr, "bit %u was uncertain (%u < %u < %u)\n", bit, noise_threshold, bit_signal, signal_threshold);
-                noisy_bits |= 1;
+                uncertain_bits |= 1;
             } else {
                 /* this bit is off */
             }
         }
 
-#if 0
-        fprintf(stderr, "bits: %06X  noisy: %06X\n", bits, noisy_bits);
-
-        unsigned j, sample;
-        static const char *names[24] = {
-            "F1", "C1", "A1", "C2",
-            "A2", "C4", "A4", "X1",
-            "B1", "D1", "B2", "D2",
-            "B4", "D4", "F2", "X2",
-            "X3", "SPI", "X4", "X5",
-            "X6", "X7", "X8", "X9"
-        };
-
-        fprintf(stderr, "-1 ... %6u\n", m[f1_sample-1]);
-        for (j = 0; j < 24; ++j) {
-            clock = f1_clock + 87 * j;
-            sample = clock / 25;
-            fprintf(stderr, "%2u %-3s %6u %6u %6u %6u ", j, names[j], m[sample+0], m[sample+1], m[sample+2], m[sample+3]);
-            if ((m[sample+0] + m[sample+1])/2 >= signal_threshold) {
-                fprintf(stderr, "ON\n");
-            } else if ((m[sample+0] + m[sample+1])/2 <= noise_threshold) {
-                fprintf(stderr, "OFF\n");
-            } else {
-                fprintf(stderr, "UNCERTAIN\n");
-            }
-        }
-#endif
-
-        if (noisy_bits) {
-            /* XX debug */
-            continue;
-        }
-
         // framing bits must be on
-        if ((bits & 0x800200) != 0x800200) {
+        if ((bits & 0x80020) != 0x80020) {
             continue;
         }
 
         // quiet bits must be off
-        if ((bits & 0x0101BF) != 0) {
+        if ((bits & 0x0101B) != 0) {
+            continue;
+        }
+
+        if (noisy_bits || uncertain_bits) {
             continue;
         }
 
         // Convert to the form that we use elsewhere:
         //  00 A4 A2 A1  00 B4 B2 B1  SPI C4 C2 C1  00 D4 D2 D1
         unsigned modeac =
-            ((bits & 0x400000) ? 0x0010 : 0) |  // C1
-            ((bits & 0x200000) ? 0x1000 : 0) |  // A1
-            ((bits & 0x100000) ? 0x0020 : 0) |  // C2
-            ((bits & 0x080000) ? 0x2000 : 0) |  // A2
-            ((bits & 0x040000) ? 0x0040 : 0) |  // C4
-            ((bits & 0x020000) ? 0x4000 : 0) |  // A4
-            ((bits & 0x008000) ? 0x0100 : 0) |  // B1
-            ((bits & 0x004000) ? 0x0001 : 0) |  // D1
-            ((bits & 0x002000) ? 0x0200 : 0) |  // B2
-            ((bits & 0x001000) ? 0x0002 : 0) |  // D2
-            ((bits & 0x000800) ? 0x0400 : 0) |  // B4
-            ((bits & 0x000400) ? 0x0004 : 0) |  // D4
-            ((bits & 0x000040) ? 0x0080 : 0);   // SPI
+            ((bits & 0x40000) ? 0x0010 : 0) |  // C1
+            ((bits & 0x20000) ? 0x1000 : 0) |  // A1
+            ((bits & 0x10000) ? 0x0020 : 0) |  // C2
+            ((bits & 0x08000) ? 0x2000 : 0) |  // A2
+            ((bits & 0x04000) ? 0x0040 : 0) |  // C4
+            ((bits & 0x02000) ? 0x4000 : 0) |  // A4
+            ((bits & 0x00800) ? 0x0100 : 0) |  // B1
+            ((bits & 0x00400) ? 0x0001 : 0) |  // D1
+            ((bits & 0x00200) ? 0x0200 : 0) |  // B2
+            ((bits & 0x00100) ? 0x0002 : 0) |  // D2
+            ((bits & 0x00080) ? 0x0400 : 0) |  // B4
+            ((bits & 0x00040) ? 0x0004 : 0) |  // D4
+            ((bits & 0x00004) ? 0x0080 : 0);   // SPI
+
+#ifdef MODEAC_DEBUG
+        draw_modeac(m, modeac, f1_clock, noise_threshold, signal_threshold, bits, noisy_bits, uncertain_bits);
+#endif
 
         // This message looks good, submit it
 
+        // For consistency with how the Beast / Radarcape does it,
+        // we report the timestamp at the second framing pulse (F2)
+        mm.timestampMsg = mag->sampleTimestamp + f2_clock / 5;  // 60MHz -> 12MHz
+
         // compute message receive time as block-start-time + difference in the 12MHz clock
-        mm.timestampMsg = mag->sampleTimestamp + f1_clock / 5;  // 60MHz -> 12MHz
-        mm.sysTimestampMsg = mag->sysTimestamp; // start of block time
-        mm.sysTimestampMsg.tv_nsec += receiveclock_ns_elapsed(mag->sampleTimestamp, mm.timestampMsg);
-        normalize_timespec(&mm.sysTimestampMsg);
+        mm.sysTimestampMsg = mag->sysTimestamp + receiveclock_ms_elapsed(mag->sampleTimestamp, mm.timestampMsg);
 
         decodeModeAMessage(&mm, modeac);
 
         // Pass data to the next layer
         useModesMessage(&mm);
 
-        f1_sample += (24*87 / 25);
+        f1_sample += (20*cyclesPerModeACBitPeriod / cyclesPerSample);
         Modes.stats_current.demod_modeac++;
     }
 }

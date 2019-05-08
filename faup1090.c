@@ -2,25 +2,30 @@
 //
 // faup1090.c: cut down version that just does 30005 -> stdout forwarding
 //
-// Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+// Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2017 FlightAware LLC
+// Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//   Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+//   Copyright (c) 2017 FlightAware LLC
+//   Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 //   All rights reserved.
 //
@@ -51,15 +56,23 @@
 
 #include <stdarg.h>
 
+void faup1090ReceiverPositionChanged(float lat, float lon, float alt)
+{
+    /* nothing */
+    (void) lat;
+    (void) lon;
+    (void) alt;
+}
+
 //
 // =============================== Initialization ===========================
 //
-static void faupInitConfig(void) {
+void faupInitConfig(void) {
     // Default everything to zero/NULL
     memset(&Modes, 0, sizeof(Modes));
 
     // Now initialise things that should not be 0/NULL to their defaults
-    Modes.nfix_crc                = 1;
+    Modes.nfix_crc                = MODES_MAX_BITERRORS;
     Modes.check_crc               = 1;
     Modes.net                     = 1;
     Modes.net_heartbeat_interval  = MODES_NET_HEARTBEAT_INTERVAL;
@@ -72,20 +85,20 @@ static void faupInitConfig(void) {
 //
 //=========================================================================
 //
-static void faupInit(void) {
+void faupInit(void) {
     // Validate the users Lat/Lon home location inputs
     if ( (Modes.fUserLat >   90.0)  // Latitude must be -90 to +90
-      || (Modes.fUserLat <  -90.0)  // and 
+      || (Modes.fUserLat <  -90.0)  // and
       || (Modes.fUserLon >  360.0)  // Longitude must be -180 to +360
       || (Modes.fUserLon < -180.0) ) {
         Modes.fUserLat = Modes.fUserLon = 0.0;
     } else if (Modes.fUserLon > 180.0) { // If Longitude is +180 to +360, make it -180 to 0
         Modes.fUserLon -= 360.0;
     }
-    // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the 
-    // Atlantic ocean off the west coast of Africa. This is unlikely to be correct. 
-    // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian 
-    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both. 
+    // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the
+    // Atlantic ocean off the west coast of Africa. This is unlikely to be correct.
+    // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian
+    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both.
     // Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
     Modes.bUserFlags &= ~MODES_USER_LATLON_VALID;
     if ((Modes.fUserLat != 0.0) || (Modes.fUserLon != 0.0)) {
@@ -93,8 +106,22 @@ static void faupInit(void) {
     }
 
     // Prepare error correction tables
-    modesChecksumInit(1);
+    modesChecksumInit(Modes.nfix_crc);
     icaoFilterInit();
+    modeACInit();
+}
+
+//
+//=========================================================================
+//
+// This function is called a few times every second by main in order to
+// perform tasks we need to do continuously, like accepting new clients
+// from the net, refreshing the screen in interactive mode, and so forth
+//
+void faupBackgroundTasks(void) {
+    icaoFilterExpire();
+    trackPeriodicUpdate();
+    modesNetPeriodicWork();
 }
 
 //
@@ -109,7 +136,6 @@ static void showHelp(void) {
 "--net-bo-port <port>     Port to connect for Beast data (default: 30005)\n"
 "--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
 "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
-"--max-range <distance>   Absolute maximum range for position decoding (in nm, default: 360)\n"
 "--stdout                 REQUIRED. Write results to stdout.\n"
 "--help                   Show this help\n"
 "\n",
@@ -120,36 +146,7 @@ MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION
 //
 //=========================================================================
 //
-// This function is called a few times every second by main in order to
-// perform tasks we need to do continuously, like accepting new clients
-// from the net, refreshing the screen in interactive mode, and so forth
-//
-static void backgroundTasks(void) {
-    icaoFilterExpire();
-    trackPeriodicUpdate();
-    modesNetPeriodicWork();
-}
-
-static void sendBeastSettings(struct client *c, const char *settings) {
-    int len;
-    char *buf, *p;
-
-    len = strlen(settings) * 3;
-    buf = p = alloca(len);
-
-    while (*settings) {
-        *p++ = 0x1a;
-        *p++ = '1';
-        *p++ = *settings++;
-    }
-
-    anetWrite(c->fd, buf, len);
-}
-
-//
-//=========================================================================
-//
-int main(int argc, char **argv) {
+int faup1090main(int argc, char **argv) {
     int j;
     int stdout_option = 0;
     char *bo_connect_ipaddr = "127.0.0.1";
@@ -172,8 +169,6 @@ int main(int argc, char **argv) {
             Modes.fUserLat = atof(argv[++j]);
         } else if (!strcmp(argv[j],"--lon") && more) {
             Modes.fUserLon = atof(argv[++j]);
-        } else if (!strcmp(argv[j],"--max-range") && more) {
-            Modes.maxRange = atof(argv[++j]) * 1852.0; // convert to metres
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
@@ -223,6 +218,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-//
-//=========================================================================
-//
+

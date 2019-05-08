@@ -109,14 +109,6 @@ void push_message (struct queueMessage* message){
     mBalance = !mBalance;
 }
 
-static inline  __attribute__((always_inline)) unsigned getbit(unsigned char *data, unsigned bitnum) {
-    unsigned bi = bitnum - 1;
-    unsigned by = bi >> 3;
-    unsigned mask = 1 << (7 - (bi & 7));
-
-    return (data[by] & mask) != 0;
-}
-
 // Thread performs upsampling on the original signal
 void thread (ReaderWriterQueue<queueMessage*> *queue) {
 

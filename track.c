@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -52,6 +52,11 @@
 
 /* #define DEBUG_CPR_CHECKS */
 
+uint32_t modeAC_count[4096];
+uint32_t modeAC_lastcount[4096];
+uint32_t modeAC_match[4096];
+uint32_t modeAC_age[4096];
+
 //
 // Return a new aircraft structure for the linked list of tracked
 // aircraft
@@ -71,23 +76,63 @@ struct aircraft *trackCreateAircraft(struct modesMessage *mm) {
         a->signalLevel[i] = 1e-5;
     a->signalNext = 0;
 
+    // defaults until we see a message otherwise
+    a->adsb_version = -1;
+    a->adsb_hrd = HEADING_MAGNETIC;
+    a->adsb_tah = HEADING_GROUND_TRACK;
+
+    // prime FATSV defaults we only emit on change
+
     // start off with the "last emitted" ACAS RA being blank (just the BDS 3,0
     // or ES type code)
     a->fatsv_emitted_bds_30[0] = 0x30;
     a->fatsv_emitted_es_acas_ra[0] = 0xE2;
+    a->fatsv_emitted_adsb_version = -1;
+    a->fatsv_emitted_addrtype = ADDR_UNKNOWN;
 
-    // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so 
-    // set them once here during initialisation, and don't bother to set them every 
-    // time this ModeA/C is received again in the future
-    if (mm->msgtype == 32) {
-        a->modeACflags = MODEAC_MSG_FLAG;
-        if (!mm->altitude_valid) {
-            a->modeACflags |= MODEAC_MSG_MODEA_ONLY;
-        }
-    }
+    // don't immediately emit, let some data build up
+    a->fatsv_last_emitted = a->fatsv_last_force_emit = messageNow();
 
     // Copy the first message so we can emit it later when a second message arrives.
     a->first_message = *mm;
+
+    // initialize data validity ages
+#define F(f,s,e) do { a->f##_valid.stale_interval = (s) * 1000; a->f##_valid.expire_interval = (e) * 1000; } while (0)
+    F(callsign,        60, 70);  // ADS-B or Comm-B
+    F(altitude_baro,   15, 70);  // ADS-B or Mode S
+    F(altitude_geom,   60, 70);  // ADS-B only
+    F(geom_delta,      60, 70);  // ADS-B only
+    F(gs,              60, 70);  // ADS-B or Comm-B
+    F(ias,             60, 70);  // ADS-B (rare) or Comm-B
+    F(tas,             60, 70);  // ADS-B (rare) or Comm-B
+    F(mach,            60, 70);  // Comm-B only
+    F(track,           60, 70);  // ADS-B or Comm-B
+    F(track_rate,      60, 70);  // Comm-B only
+    F(roll,            60, 70);  // Comm-B only
+    F(mag_heading,     60, 70);  // ADS-B (rare) or Comm-B
+    F(true_heading,    60, 70);  // ADS-B only (rare)
+    F(baro_rate,       60, 70);  // ADS-B or Comm-B
+    F(geom_rate,       60, 70);  // ADS-B or Comm-B
+    F(squawk,          15, 70);  // ADS-B or Mode S
+    F(airground,       15, 70);  // ADS-B or Mode S
+    F(nav_qnh,         60, 70);  // Comm-B only
+    F(nav_altitude_mcp, 60, 70);  // ADS-B or Comm-B
+    F(nav_altitude_fms, 60, 70);  // ADS-B or Comm-B
+    F(nav_altitude_src, 60, 70); // ADS-B or Comm-B
+    F(nav_heading,     60, 70);  // ADS-B or Comm-B
+    F(nav_modes,       60, 70);  // ADS-B or Comm-B
+    F(cpr_odd,         60, 70);  // ADS-B only
+    F(cpr_even,        60, 70);  // ADS-B only
+    F(position,        60, 70);  // ADS-B only
+    F(nic_a,           60, 70);  // ADS-B only
+    F(nic_c,           60, 70);  // ADS-B only
+    F(nic_baro,        60, 70);  // ADS-B only
+    F(nac_p,           60, 70);  // ADS-B only
+    F(nac_v,           60, 70);  // ADS-B only
+    F(sil,             60, 70);  // ADS-B only
+    F(gva,             60, 70);  // ADS-B only
+    F(sda,             60, 70);  // ADS-B only
+#undef F
 
     Modes.stats_current.unique_aircraft++;
 
@@ -112,15 +157,18 @@ struct aircraft *trackFindAircraft(uint32_t addr) {
 
 // Should we accept some new data from the given source?
 // If so, update the validity and return 1
-static int accept_data(data_validity *d, datasource_t source, uint64_t now)
+static int accept_data(data_validity *d, datasource_t source)
 {
-    if (source < d->source && now < d->stale)
+    if (messageNow() < d->updated)
+        return 0;
+
+    if (source < d->source && messageNow() < d->stale)
         return 0;
 
     d->source = source;
-    d->updated = now;
-    d->stale = now + 60000;
-    d->expires = now + 70000;
+    d->updated = messageNow();
+    d->stale = messageNow() + (d->stale_interval ? d->stale_interval : 60000);
+    d->expires = messageNow() + (d->expire_interval ? d->expire_interval : 70000);
     return 1;
 }
 
@@ -142,10 +190,10 @@ static void combine_validity(data_validity *to, const data_validity *from1, cons
     to->expires = (from1->expires < from2->expires) ? from1->expires : from2->expires;   // the earlier of the two expiry times
 }
 
-static int compare_validity(const data_validity *lhs, const data_validity *rhs, uint64_t now) {
-    if (now < lhs->stale && lhs->source > rhs->source)
+static int compare_validity(const data_validity *lhs, const data_validity *rhs) {
+    if (messageNow() < lhs->stale && lhs->source > rhs->source)
         return 1;
-    else if (now < rhs->stale && lhs->source < rhs->source)
+    else if (messageNow() < rhs->stale && lhs->source < rhs->source)
         return -1;
     else if (lhs->updated > rhs->updated)
         return 1;
@@ -201,7 +249,7 @@ static void update_range_histogram(double lat, double lon)
 
 // return true if it's OK for the aircraft to have travelled from its last known position
 // to a new position at (lat,lon,surface) at a time of now.
-static int speed_check(struct aircraft *a, double lat, double lon, uint64_t now, int surface)
+static int speed_check(struct aircraft *a, double lat, double lon, int surface)
 {
     uint64_t elapsed;
     double distance;
@@ -212,14 +260,14 @@ static int speed_check(struct aircraft *a, double lat, double lon, uint64_t now,
     if (!trackDataValid(&a->position_valid))
         return 1; // no reference, assume OK
 
-    elapsed = trackDataAge(&a->position_valid, now);
+    elapsed = trackDataAge(&a->position_valid);
 
-    if (trackDataValid(&a->speed_valid))
-        speed = a->speed;
-    else if (trackDataValid(&a->speed_ias_valid))
-        speed = a->speed_ias * 4 / 3;
-    else if (trackDataValid(&a->speed_tas_valid))
-        speed = a->speed_tas * 4 / 3;
+    if (trackDataValid(&a->gs_valid))
+        speed = a->gs;
+    else if (trackDataValid(&a->tas_valid))
+        speed = a->tas * 4 / 3;
+    else if (trackDataValid(&a->ias_valid))
+        speed = a->ias * 2;
     else
         speed = surface ? 100 : 600; // guess
 
@@ -256,24 +304,37 @@ static int speed_check(struct aircraft *a, double lat, double lon, uint64_t now,
     return inrange;
 }
 
-static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now, double *lat, double *lon, unsigned *nuc)
+// return 1 if left_rc is worse (less accurate) than right_rc
+static int rcIsWorse(int left_rc, int right_rc)
+{
+    if (left_rc == 0 && right_rc == 0) // both unknown
+        return 0;
+    if (left_rc == 0)
+        return 1; // left unknown < right known
+    if (right_rc == 0)
+        return 0; // left known > right unknown
+    return (left_rc > right_rc);
+}
+
+static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, double *lat, double *lon, unsigned *nic, unsigned *rc)
 {
     int result;
     int fflag = mm->cpr_odd;
     int surface = (mm->cpr_type == CPR_SURFACE);
 
-    *nuc = (a->cpr_even_nuc < a->cpr_odd_nuc ? a->cpr_even_nuc : a->cpr_odd_nuc); // worst of the two positions
+    // derive NIC, Rc from the worse of the two position
+    // smaller NIC is worse
+    *nic = (a->cpr_even_nic < a->cpr_odd_nic ? a->cpr_even_nic : a->cpr_odd_nic);
+    *rc = (rcIsWorse(a->cpr_even_rc, a->cpr_odd_rc) ? a->cpr_even_rc : a->cpr_odd_rc);
 
     if (surface) {
         // surface global CPR
         // find reference location
         double reflat, reflon;
 
-        if (trackDataValidEx(&a->position_valid, now, 50000, SOURCE_INVALID)) { // Ok to try aircraft relative first
+        if (trackDataValid(&a->position_valid)) { // Ok to try aircraft relative first
             reflat = a->lat;
             reflon = a->lon;
-            if (a->pos_nuc < *nuc)
-                *nuc = a->pos_nuc;
         } else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) {
             reflat = Modes.fUserLat;
             reflon = Modes.fUserLon;
@@ -325,7 +386,7 @@ static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now
         return result;
 
     // check speed limit
-    if (trackDataValid(&a->position_valid) && a->pos_nuc >= *nuc && !speed_check(a, *lat, *lon, now, surface)) {
+    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && !rcIsWorse(a->pos_rc, *rc) && !speed_check(a, *lat, *lon, surface)) {
         Modes.stats_current.cpr_global_speed_checks++;
         return -2;
     }
@@ -333,7 +394,7 @@ static int doGlobalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now
     return result;
 }
 
-static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now, double *lat, double *lon, unsigned *nuc)
+static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, double *lat, double *lon, unsigned *nic, unsigned *rc)
 {
     // relative CPR
     // find reference location
@@ -343,20 +404,28 @@ static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now,
     int fflag = mm->cpr_odd;
     int surface = (mm->cpr_type == CPR_SURFACE);
 
-    *nuc = mm->cpr_nucp;
+    if (fflag) {
+        *nic = a->cpr_odd_nic;
+        *rc = a->cpr_odd_rc;
+    } else {
+        *nic = a->cpr_even_nic;
+        *rc = a->cpr_even_rc;
+    }
 
-    if (trackDataValidEx(&a->position_valid, now, 50000, SOURCE_INVALID)) {
+    if (trackDataValid(&a->position_valid)) {
         reflat = a->lat;
         reflon = a->lon;
 
-        if (a->pos_nuc < *nuc)
-            *nuc = a->pos_nuc;
+        if (a->pos_nic < *nic)
+            *nic = a->pos_nic;
+        if (rcIsWorse(a->pos_rc, *rc))
+            *rc = a->pos_rc;
 
         range_limit = 50e3;
     } else if (!surface && (Modes.bUserFlags & MODES_USER_LATLON_VALID)) {
         reflat = Modes.fUserLat;
         reflon = Modes.fUserLon;
-        
+
         // The cell size is at least 360NM, giving a nominal
         // max range of 180NM (half a cell).
         //
@@ -399,7 +468,7 @@ static int doLocalCPR(struct aircraft *a, struct modesMessage *mm, uint64_t now,
     }
 
     // check speed limit
-    if (trackDataValid(&a->position_valid) && a->pos_nuc >= *nuc && !speed_check(a, *lat, *lon, now, surface)) {
+    if (trackDataValid(&a->position_valid) && a->pos_nic >= *nic && !rcIsWorse(a->pos_rc, *rc) && !speed_check(a, *lat, *lon, surface)) {
 #ifdef DEBUG_CPR_CHECKS
         fprintf(stderr, "Speed check for %06X with local decoding failed\n", a->addr);
 #endif
@@ -418,12 +487,13 @@ static uint64_t time_between(uint64_t t1, uint64_t t2)
         return t2 - t1;
 }
 
-static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t now)
+static void updatePosition(struct aircraft *a, struct modesMessage *mm)
 {
     int location_result = -1;
     uint64_t max_elapsed;
     double new_lat = 0, new_lon = 0;
-    unsigned new_nuc = 0;
+    unsigned new_nic = 0;
+    unsigned new_rc = 0;
     int surface;
 
     surface = (mm->cpr_type == CPR_SURFACE);
@@ -432,7 +502,7 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t
         ++Modes.stats_current.cpr_surface;
 
         // Surface: 25 seconds if >25kt or speed unknown, 50 seconds otherwise
-        if (mm->speed_valid && mm->speed <= 25)
+        if (mm->gs_valid && mm->gs.selected <= 25)
             max_elapsed = 50000;
         else
             max_elapsed = 25000;
@@ -449,7 +519,7 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t
         a->cpr_odd_type == a->cpr_even_type &&
         time_between(a->cpr_odd_valid.updated, a->cpr_even_valid.updated) <= max_elapsed) {
 
-        location_result = doGlobalCPR(a, mm, now, &new_lat, &new_lon, &new_nuc);
+        location_result = doGlobalCPR(a, mm, &new_lat, &new_lon, &new_nic, &new_rc);
 
         if (location_result == -2) {
 #ifdef DEBUG_CPR_CHECKS
@@ -480,7 +550,7 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t
 
     // Otherwise try relative CPR.
     if (location_result == -1) {
-        location_result = doLocalCPR(a, mm, now, &new_lat, &new_lon, &new_nuc);
+        location_result = doLocalCPR(a, mm, &new_lat, &new_lon, &new_nic, &new_rc);
 
         if (location_result < 0) {
             Modes.stats_current.cpr_local_skipped++;
@@ -501,13 +571,321 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t
         mm->cpr_decoded = 1;
         mm->decoded_lat = new_lat;
         mm->decoded_lon = new_lon;
+        mm->decoded_nic = new_nic;
+        mm->decoded_rc = new_rc;
 
         // Update aircraft state
         a->lat = new_lat;
         a->lon = new_lon;
-        a->pos_nuc = new_nuc;
+        a->pos_nic = new_nic;
+        a->pos_rc = new_rc;
 
         update_range_histogram(new_lat, new_lon);
+    }
+}
+
+static unsigned compute_nic(unsigned metype, unsigned version, unsigned nic_a, unsigned nic_b, unsigned nic_c)
+{
+    switch (metype) {
+    case 5: // surface
+    case 9: // airborne
+    case 20: // airborne, GNSS altitude
+        return 11;
+
+    case 6: // surface
+    case 10: // airborne
+    case 21: // airborne, GNSS altitude
+        return 10;
+
+    case 7: // surface
+        if (version == 2) {
+            if (nic_a && !nic_c) {
+                return 9;
+            } else {
+                return 8;
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 9;
+            } else {
+                return 8;
+            }
+        } else {
+            return 8;
+        }
+
+    case 8: // surface
+        if (version == 2) {
+            if (nic_a && nic_c) {
+                return 7;
+            } else if (nic_a && !nic_c) {
+                return 6;
+            } else if (!nic_a && nic_c) {
+                return 6;
+            } else {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
+
+    case 11: // airborne
+        if (version == 2) {
+            if (nic_a && nic_b) {
+                return 9;
+            } else {
+                return 8;
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 9;
+            } else {
+                return 8;
+            }
+        } else {
+            return 8;
+        }
+
+    case 12: // airborne
+        return 7;
+
+    case 13: // airborne
+        return 6;
+
+    case 14: // airborne
+        return 5;
+
+    case 15: // airborne
+        return 4;
+
+    case 16: // airborne
+        if (nic_a && nic_b) {
+            return 3;
+        } else {
+            return 2;
+        }
+
+    case 17: // airborne
+        return 1;
+
+    default:
+        return 0;
+    }
+}
+
+static unsigned compute_rc(unsigned metype, unsigned version, unsigned nic_a, unsigned nic_b, unsigned nic_c)
+{
+    // ED-102 Table 2-14, Table N-4, Table N-11
+
+    switch (metype) {
+    case 5: // surface
+    case 9: // airborne
+    case 20: // airborne, GNSS altitude
+        return 8; // 7.5m
+
+    case 6: // surface
+    case 10: // airborne
+    case 21: // airborne, GNSS altitude
+        return 25;
+
+    case 7: // surface
+        if (version == 2) {
+            if (nic_a && !nic_c) {
+                return 75;
+            } else {
+                return 186; // 185.2m, 0.1NM
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 75;
+            } else {
+                return 186; // 185.2m, 0.1NM
+            }
+        } else {
+            return 186; // 185.2m, 0.1NM
+        }
+
+    case 8: // surface
+        if (version == 2) {
+            if (nic_a && nic_c) {
+                return 371; // 370.4m, 0.2NM
+            } else if (nic_a && !nic_c) {
+                return 556; // 555.6m, 0.3NM
+            } else if (!nic_a && nic_c) {
+                return 1111; // 1111m, 0.6NM
+            } else {
+                return RC_UNKNOWN;
+            }
+        } else {
+            return RC_UNKNOWN;
+        }
+
+    case 11: // airborne
+        if (version == 2) {
+            if (nic_a && nic_b) {
+                return 75;
+            } else {
+                return 186; // 185.2m, 0.1NM
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 75;
+            } else {
+                return 186; // 185.2m, 0.1NM
+            }
+        } else {
+            return 186; // 185.2m, 0.1NM
+        }
+
+    case 12: // airborne
+        return 371; // 370.4m, 0.2NM
+
+    case 13: // airborne
+        if (version == 2) {
+            if (!nic_a && nic_b) {
+                return 556; // 555.6m, 0.3NM
+            } else if (!nic_a && !nic_b) {
+                return 926; // 926m, 0.5NM
+            } else if (nic_a && nic_b) {
+                return 1112; // 1111.2m, 0.6NM
+            } else {
+                return RC_UNKNOWN; // bad combination
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 1112; // 1111.2m, 0.6NM
+            } else {
+                return 926; // 926m, 0.5NM
+            }
+        } else {
+            return 926; // 926m, 0.5NM
+        }
+
+    case 14: // airborne
+        return 1852; // 1.0NM
+
+    case 15: // airborne
+        return 3704; // 2NM
+
+    case 16: // airborne
+        if (version == 2) {
+            if (nic_a && nic_b) {
+                return 7408; // 4NM
+            } else {
+                return 14816; // 8NM
+            }
+        } else if (version == 1) {
+            if (nic_a) {
+                return 7408; // 4NM
+            } else {
+                return 14816; // 8NM
+            }
+        } else {
+            return 18520; // 10NM
+        }
+
+    case 17: // airborne
+        return 37040; // 20NM
+
+    default:
+        return RC_UNKNOWN;
+    }
+}
+
+// Map ADS-B v0 position message type to NACp value
+// returned computed NACp, or -1 if not a suitable message type
+static int compute_v0_nacp(struct modesMessage *mm)
+{
+    if (mm->msgtype != 17 && mm->msgtype != 18) {
+        return -1;
+    }
+
+    // ED-102A Table N-7
+    switch (mm->metype) {
+    case 0: return 0;
+    case 5: return 11;
+    case 6: return 10;
+    case 7: return 8;
+    case 8: return 0;
+    case 9: return 11;
+    case 10: return 10;
+    case 11: return 8;
+    case 12: return 7;
+    case 13: return 6;
+    case 14: return 5;
+    case 15: return 4;
+    case 16: return 1;
+    case 17: return 1;
+    case 18: return 0;
+    case 20: return 11;
+    case 21: return 10;
+    case 22: return 0;
+    default: return -1;
+    }
+}
+
+// Map ADS-B v0 position message type to SIL value
+// returned computed SIL, or -1 if not a suitable message type
+static int compute_v0_sil(struct modesMessage *mm)
+{
+    if (mm->msgtype != 17 && mm->msgtype != 18) {
+        return -1;
+    }
+
+    // ED-102A Table N-8
+    switch (mm->metype) {
+    case 0:
+        return 0;
+
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 16:
+    case 17:
+        return 2;
+
+    case 18:
+        return 0;
+
+    case 20:
+    case 21:
+        return 2;
+
+    case 22:
+        return 0;
+
+    default:
+        return -1;
+    }
+}
+
+static void compute_nic_rc_from_message(struct modesMessage *mm, struct aircraft *a, unsigned *nic, unsigned *rc)
+{
+    int nic_a = (trackDataValid(&a->nic_a_valid) && a->nic_a);
+    int nic_b = (mm->accuracy.nic_b_valid && mm->accuracy.nic_b);
+    int nic_c = (trackDataValid(&a->nic_c_valid) && a->nic_c);
+
+    *nic = compute_nic(mm->metype, a->adsb_version, nic_a, nic_b, nic_c);
+    *rc = compute_rc(mm->metype, a->adsb_version, nic_a, nic_b, nic_c);
+}
+
+static int altitude_to_feet(int raw, altitude_unit_t unit)
+{
+    switch (unit) {
+    case UNIT_METERS:
+        return raw / 0.3048;
+    case UNIT_FEET:
+        return raw;
+    default:
+        return 0;
     }
 }
 
@@ -520,7 +898,19 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm, uint64_t
 struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
 {
     struct aircraft *a;
-    uint64_t now = mstime();
+
+    if (mm->msgtype == 32) {
+        // Mode A/C, just count it (we ignore SPI)
+        modeAC_count[modeAToIndex(mm->squawk)]++;
+        return NULL;
+    }
+
+    if (mm->addr == 0) {
+        // junk address, don't track it
+        return NULL;
+    }
+
+    _messageNow = mm->sysTimestampMsg;
 
     // Lookup our aircraft or create a new one
     a = trackFindAircraft(mm->addr);
@@ -534,124 +924,267 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         a->signalLevel[a->signalNext] = mm->signalLevel;
         a->signalNext = (a->signalNext + 1) & 7;
     }
-    a->seen      = now;
+    a->seen      = messageNow();
     a->messages++;
 
     // update addrtype, we only ever go towards "more direct" types
     if (mm->addrtype < a->addrtype)
         a->addrtype = mm->addrtype;
 
-    if (mm->altitude_valid && mm->altitude_source == ALTITUDE_BARO && accept_data(&a->altitude_valid, mm->source, now)) {
-        unsigned modeC = (a->altitude + 49) / 100;
-        if (modeC != a->altitude_modeC) {
-            a->modeCcount = 0;               //....zero the hit count
-            a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
-        }
+    // if we saw some direct ADS-B for the first time, assume version 0
+    if (mm->source == SOURCE_ADSB && a->adsb_version < 0)
+        a->adsb_version = 0;
 
-        a->altitude = mm->altitude;
-        a->altitude_modeC = modeC;
-    }
-
-    if (mm->squawk_valid && accept_data(&a->squawk_valid, mm->source, now)) {
-        if (mm->squawk != a->squawk) {
-            a->modeAcount = 0;               //....zero the hit count
-            a->modeACflags &= ~MODEAC_MSG_MODEA_HIT;
-        }
-        a->squawk = mm->squawk;
-    }
-
-    if (mm->altitude_valid && mm->altitude_source == ALTITUDE_GNSS && accept_data(&a->altitude_gnss_valid, mm->source, now)) {
-        a->altitude_gnss = mm->altitude;
-    }
-
-    if (mm->gnss_delta_valid && accept_data(&a->gnss_delta_valid, mm->source, now)) {
-        a->gnss_delta = mm->gnss_delta;
-    }
-
-    if (mm->heading_valid && mm->heading_source == HEADING_TRUE && accept_data(&a->heading_valid, mm->source, now)) {
-        a->heading = mm->heading;
-    }
-
-    if (mm->heading_valid && mm->heading_source == HEADING_MAGNETIC && accept_data(&a->heading_magnetic_valid, mm->source, now)) {
-        a->heading_magnetic = mm->heading;
-    }
-
-    if (mm->speed_valid && mm->speed_source == SPEED_GROUNDSPEED && accept_data(&a->speed_valid, mm->source, now)) {
-        a->speed = mm->speed;
-    }
-
-    if (mm->speed_valid && mm->speed_source == SPEED_IAS && accept_data(&a->speed_ias_valid, mm->source, now)) {
-        a->speed_ias = mm->speed;
-    }
-
-    if (mm->speed_valid && mm->speed_source == SPEED_TAS && accept_data(&a->speed_tas_valid, mm->source, now)) {
-        a->speed_tas = mm->speed;
-    }
-
-    if (mm->vert_rate_valid && accept_data(&a->vert_rate_valid, mm->source, now)) {
-        a->vert_rate = mm->vert_rate;
-        a->vert_rate_source = mm->vert_rate_source;
-    }
-
-    if (mm->category_valid && accept_data(&a->category_valid, mm->source, now)) {
+    // category shouldn't change over time, don't bother with metadata
+    if (mm->category_valid) {
         a->category = mm->category;
     }
 
-    if (mm->airground != AG_INVALID && accept_data(&a->airground_valid, mm->source, now)) {
-        a->airground = mm->airground;
+    // operational status message
+    // done early to update version / HRD / TAH
+    if (mm->opstatus.valid) {
+        a->adsb_version = mm->opstatus.version;
+        if (mm->opstatus.hrd != HEADING_INVALID) {
+            a->adsb_hrd = mm->opstatus.hrd;
+        }
+        if (mm->opstatus.tah != HEADING_INVALID) {
+            a->adsb_tah = mm->opstatus.tah;
+        }
     }
 
-    if (mm->callsign_valid && accept_data(&a->callsign_valid, mm->source, now)) {
+    // fill in ADS-B v0 NACp, SIL from position message type
+    if (a->adsb_version == 0 && !mm->accuracy.nac_p_valid) {
+        int computed_nacp = compute_v0_nacp(mm);
+        if (computed_nacp != -1) {
+            mm->accuracy.nac_p_valid = 1;
+            mm->accuracy.nac_p = computed_nacp;
+        }
+    }
+
+    if (a->adsb_version == 0 && mm->accuracy.sil_type == SIL_INVALID) {
+        int computed_sil = compute_v0_sil(mm);
+        if (computed_sil != -1) {
+            mm->accuracy.sil_type = SIL_UNKNOWN;
+            mm->accuracy.sil = computed_sil;
+        }
+    }
+
+    if (mm->altitude_baro_valid && accept_data(&a->altitude_baro_valid, mm->source)) {
+        int alt = altitude_to_feet(mm->altitude_baro, mm->altitude_baro_unit);
+        if (a->modeC_hit) {
+            int new_modeC = (a->altitude_baro + 49) / 100;
+            int old_modeC = (alt + 49) / 100;
+            if (new_modeC != old_modeC) {
+                a->modeC_hit = 0;
+            }
+        }
+
+        a->altitude_baro = alt;
+    }
+
+    if (mm->squawk_valid && accept_data(&a->squawk_valid, mm->source)) {
+        if (mm->squawk != a->squawk) {
+            a->modeA_hit = 0;
+        }
+        a->squawk = mm->squawk;
+
+#if 1   // Disabled for now as it obscures the origin of the data
+        // Handle 7x00 without a corresponding emergency status
+        if (!mm->emergency_valid) {
+            emergency_t squawk_emergency;
+            switch (mm->squawk) {
+            case 0x7500:
+                squawk_emergency = EMERGENCY_UNLAWFUL;
+                break;
+            case 0x7600:
+                squawk_emergency = EMERGENCY_NORDO;
+                break;
+            case 0x7700:
+                squawk_emergency = EMERGENCY_GENERAL;
+                break;
+            default:
+                squawk_emergency = EMERGENCY_NONE;
+                break;
+            }
+
+            if (squawk_emergency != EMERGENCY_NONE && accept_data(&a->emergency_valid, mm->source)) {
+                a->emergency = squawk_emergency;
+            }
+        }
+#endif
+    }
+
+    if (mm->emergency_valid && accept_data(&a->emergency_valid, mm->source)) {
+        a->emergency = mm->emergency;
+    }
+
+    if (mm->altitude_geom_valid && accept_data(&a->altitude_geom_valid, mm->source)) {
+        a->altitude_geom = altitude_to_feet(mm->altitude_geom, mm->altitude_geom_unit);
+    }
+
+    if (mm->geom_delta_valid && accept_data(&a->geom_delta_valid, mm->source)) {
+        a->geom_delta = mm->geom_delta;
+    }
+
+    if (mm->heading_valid) {
+        heading_type_t htype = mm->heading_type;
+        if (htype == HEADING_MAGNETIC_OR_TRUE) {
+            htype = a->adsb_hrd;
+        } else if (htype == HEADING_TRACK_OR_HEADING) {
+            htype = a->adsb_tah;
+        }
+
+        if (htype == HEADING_GROUND_TRACK && accept_data(&a->track_valid, mm->source)) {
+            a->track = mm->heading;
+        } else if (htype == HEADING_MAGNETIC && accept_data(&a->mag_heading_valid, mm->source)) {
+            a->mag_heading = mm->heading;
+        } else if (htype == HEADING_TRUE && accept_data(&a->true_heading_valid, mm->source)) {
+            a->true_heading = mm->heading;
+        }
+    }
+
+    if (mm->track_rate_valid && accept_data(&a->track_rate_valid, mm->source)) {
+        a->track_rate = mm->track_rate;
+    }
+
+    if (mm->roll_valid && accept_data(&a->roll_valid, mm->source)) {
+        a->roll = mm->roll;
+    }
+
+    if (mm->gs_valid) {
+        mm->gs.selected = (a->adsb_version == 2 ? mm->gs.v2 : mm->gs.v0);
+        if (accept_data(&a->gs_valid, mm->source)) {
+            a->gs = mm->gs.selected;
+        }
+    }
+
+    if (mm->ias_valid && accept_data(&a->ias_valid, mm->source)) {
+        a->ias = mm->ias;
+    }
+
+    if (mm->tas_valid && accept_data(&a->tas_valid, mm->source)) {
+        a->tas = mm->tas;
+    }
+
+    if (mm->mach_valid && accept_data(&a->mach_valid, mm->source)) {
+        a->mach = mm->mach;
+    }
+
+    if (mm->baro_rate_valid && accept_data(&a->baro_rate_valid, mm->source)) {
+        a->baro_rate = mm->baro_rate;
+    }
+
+    if (mm->geom_rate_valid && accept_data(&a->geom_rate_valid, mm->source)) {
+        a->geom_rate = mm->geom_rate;
+    }
+
+    if (mm->airground != AG_INVALID) {
+        // If our current state is UNCERTAIN, accept new data as normal
+        // If our current state is certain but new data is not, only accept the uncertain state if the certain data has gone stale
+        if (mm->airground != AG_UNCERTAIN ||
+            (mm->airground == AG_UNCERTAIN && !trackDataFresh(&a->airground_valid))) {
+            if (accept_data(&a->airground_valid, mm->source)) {
+                a->airground = mm->airground;
+            }
+        }
+    }
+
+    if (mm->callsign_valid && accept_data(&a->callsign_valid, mm->source)) {
         memcpy(a->callsign, mm->callsign, sizeof(a->callsign));
     }
 
+    if (mm->nav.mcp_altitude_valid && accept_data(&a->nav_altitude_mcp_valid, mm->source)) {
+        a->nav_altitude_mcp = mm->nav.mcp_altitude;
+    }
+
+    if (mm->nav.fms_altitude_valid && accept_data(&a->nav_altitude_fms_valid, mm->source)) {
+        a->nav_altitude_fms = mm->nav.fms_altitude;
+    }
+
+    if (mm->nav.altitude_source != NAV_ALT_INVALID && accept_data(&a->nav_altitude_src_valid, mm->source)) {
+        a->nav_altitude_src = mm->nav.altitude_source;
+    }
+
+    if (mm->nav.heading_valid && accept_data(&a->nav_heading_valid, mm->source)) {
+        a->nav_heading = mm->nav.heading;
+    }
+
+    if (mm->nav.modes_valid && accept_data(&a->nav_modes_valid, mm->source)) {
+        a->nav_modes = mm->nav.modes;
+    }
+
+    if (mm->nav.qnh_valid && accept_data(&a->nav_qnh_valid, mm->source)) {
+        a->nav_qnh = mm->nav.qnh;
+    }
+
     // CPR, even
-    if (mm->cpr_valid && !mm->cpr_odd && accept_data(&a->cpr_even_valid, mm->source, now)) {
+    if (mm->cpr_valid && !mm->cpr_odd && accept_data(&a->cpr_even_valid, mm->source)) {
         a->cpr_even_type = mm->cpr_type;
         a->cpr_even_lat = mm->cpr_lat;
         a->cpr_even_lon = mm->cpr_lon;
-        a->cpr_even_nuc = mm->cpr_nucp;
+        compute_nic_rc_from_message(mm, a, &a->cpr_even_nic, &a->cpr_even_rc);
     }
 
     // CPR, odd
-    if (mm->cpr_valid && mm->cpr_odd && accept_data(&a->cpr_odd_valid, mm->source, now)) {
+    if (mm->cpr_valid && mm->cpr_odd && accept_data(&a->cpr_odd_valid, mm->source)) {
         a->cpr_odd_type = mm->cpr_type;
         a->cpr_odd_lat = mm->cpr_lat;
         a->cpr_odd_lon = mm->cpr_lon;
-        a->cpr_odd_nuc = mm->cpr_nucp;
+        compute_nic_rc_from_message(mm, a, &a->cpr_odd_nic, &a->cpr_odd_rc);
+    }
+
+    if (mm->accuracy.sda_valid && accept_data(&a->sda_valid, mm->source)) {
+        a->sda = mm->accuracy.sda;
+    }
+
+    if (mm->accuracy.nic_a_valid && accept_data(&a->nic_a_valid, mm->source)) {
+        a->nic_a = mm->accuracy.nic_a;
+    }
+
+    if (mm->accuracy.nic_c_valid && accept_data(&a->nic_c_valid, mm->source)) {
+        a->nic_c = mm->accuracy.nic_c;
+    }
+
+    if (mm->accuracy.nic_baro_valid && accept_data(&a->nic_baro_valid, mm->source)) {
+        a->nic_baro = mm->accuracy.nic_baro;
+    }
+
+    if (mm->accuracy.nac_p_valid && accept_data(&a->nac_p_valid, mm->source)) {
+        a->nac_p = mm->accuracy.nac_p;
+    }
+
+    if (mm->accuracy.nac_v_valid && accept_data(&a->nac_v_valid, mm->source)) {
+        a->nac_v = mm->accuracy.nac_v;
+    }
+
+    if (mm->accuracy.sil_type != SIL_INVALID && accept_data(&a->sil_valid, mm->source)) {
+        a->sil = mm->accuracy.sil;
+        if (a->sil_type == SIL_INVALID || mm->accuracy.sil_type != SIL_UNKNOWN) {
+            a->sil_type = mm->accuracy.sil_type;
+        }
+    }
+
+    if (mm->accuracy.gva_valid && accept_data(&a->gva_valid, mm->source)) {
+        a->gva = mm->accuracy.gva;
+    }
+
+    if (mm->accuracy.sda_valid && accept_data(&a->sda_valid, mm->source)) {
+        a->sda = mm->accuracy.sda;
     }
 
     // Now handle derived data
 
-    // derive GNSS if we have baro + delta
-    if (compare_validity(&a->altitude_valid, &a->altitude_gnss_valid, now) > 0 &&
-        compare_validity(&a->gnss_delta_valid, &a->altitude_gnss_valid, now) > 0) {
-        // Baro and delta are both more recent than GNSS, derive GNSS from baro + delta
-        a->altitude_gnss = a->altitude + a->gnss_delta;
-        combine_validity(&a->altitude_gnss_valid, &a->altitude_valid, &a->gnss_delta_valid);
+    // derive geometric altitude if we have baro + delta
+    if (compare_validity(&a->altitude_baro_valid, &a->altitude_geom_valid) > 0 &&
+        compare_validity(&a->geom_delta_valid, &a->altitude_geom_valid) > 0) {
+        // Baro and delta are both more recent than geometric, derive geometric from baro + delta
+        a->altitude_geom = a->altitude_baro + a->geom_delta;
+        combine_validity(&a->altitude_geom_valid, &a->altitude_baro_valid, &a->geom_delta_valid);
     }
 
     // If we've got a new cprlat or cprlon
     if (mm->cpr_valid) {
-        updatePosition(a, mm, now);
-    }
-
-    if (mm->msgtype == 32) {
-        int flags = a->modeACflags;
-        if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD) {
-            //
-            // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
-            // set  So the aircraft it used to match has either changed altitude, or gone out of our receiver range
-            //
-            // We've now received this Mode-A/C again, so it must be a new aircraft. It could be another aircraft
-            // at the same Mode-C altitude, or it could be a new airctraft with a new Mods-A squawk.
-            //
-            // To avoid masking this aircraft from the interactive display, clear the MODEAC_MSG_MODES_OLD flag
-            // and set messages to 1;
-            //
-            a->modeACflags = flags & ~MODEAC_MSG_MODEC_OLD;
-            a->messages    = 1;
-        }
+        updatePosition(a, mm);
     }
 
     return (a);
@@ -661,85 +1194,79 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
 // Periodic updates of tracking state
 //
 
-//
-//=========================================================================
-//
-// Periodically search through the list of known Mode-S aircraft and tag them if this
-// Mode A/C  matches their known Mode S Squawks or Altitudes(+/- 50feet).
-//
-// A Mode S equipped aircraft may also respond to Mode A and Mode C SSR interrogations.
-// We can't tell if this is a Mode A or C, so scan through the entire aircraft list
-// looking for matches on Mode A (squawk) and Mode C (altitude). Flag in the Mode S
-// records that we have had a potential Mode A or Mode C response from this aircraft. 
-//
-// If an aircraft responds to Mode A then it's highly likely to be responding to mode C 
-// too, and vice verca. Therefore, once the mode S record is tagged with both a Mode A
-// and a Mode C flag, we can be fairly confident that this Mode A/C frame relates to that
-// Mode S aircraft.
-//
-// Mode C's are more likely to clash than Mode A's; There could be several aircraft 
-// cruising at FL370, but it's less likely (though not impossible) that there are two 
-// aircraft on the same squawk. Therefore, give precidence to Mode A record matches
-//
-// Note : It's theoretically possible for an aircraft to have the same value for Mode A 
-// and Mode C. Therefore we have to check BOTH A AND C for EVERY S.
-//
-static void trackUpdateAircraftModeA(struct aircraft *a)
+// Periodically match up mode A/C results with mode S results
+static void trackMatchAC(uint64_t now)
 {
-    struct aircraft *b = Modes.aircrafts;
-
-    while(b) {
-        if ((b->modeACflags & MODEAC_MSG_FLAG) == 0) {  // skip any fudged ICAO records 
-
-            // If both (a) and (b) have valid squawks...
-            if (trackDataValid(&a->squawk_valid) && trackDataValid(&b->squawk_valid)) {
-                // ...check for Mode-A == Mode-S Squawk matches
-                if (a->squawk == b->squawk) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
-                    b->modeAcount   = a->messages;
-                    b->modeACflags |= MODEAC_MSG_MODEA_HIT;
-                    a->modeACflags |= MODEAC_MSG_MODEA_HIT;
-                    if ( (b->modeAcount > 0) &&
-                       ( (b->modeCcount > 1)
-                      || (a->modeACflags & MODEAC_MSG_MODEA_ONLY)) ) // Allow Mode-A only matches if this Mode-A is invalid Mode-C
-                        {a->modeACflags |= MODEAC_MSG_MODES_HIT;}    // flag this ModeA/C probably belongs to a known Mode S                    
-                }
-            }
-
-            // If both (a) and (b) have valid altitudes...
-            if (trackDataValid(&a->altitude_valid) && trackDataValid(&b->altitude_valid)) {
-                // ... check for Mode-C == Mode-S Altitude matches
-                if (  (a->altitude_modeC     == b->altitude_modeC    )     // If a 'real' Mode-S ICAO exists at this Mode-C Altitude
-                   || (a->altitude_modeC     == b->altitude_modeC + 1)     //          or this Mode-C - 100 ft
-                   || (a->altitude_modeC + 1 == b->altitude_modeC    ) ) { //          or this Mode-C + 100 ft
-                    b->modeCcount   = a->messages;
-                    b->modeACflags |= MODEAC_MSG_MODEC_HIT;
-                    a->modeACflags |= MODEAC_MSG_MODEC_HIT;
-                    if ( (b->modeAcount > 0) &&
-                         (b->modeCcount > 1) )
-                        {a->modeACflags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);} // flag this ModeA/C probably belongs to a known Mode S                    
-                }
-            }
-        }
-        b = b->next;
+    // clear match flags
+    for (unsigned i = 0; i < 4096; ++i) {
+        modeAC_match[i] = 0;
     }
-}
-//
-//=========================================================================
-//
-static void trackUpdateAircraftModeS()
-{
-    struct aircraft *a = Modes.aircrafts;
 
-    while(a) {
-        int flags = a->modeACflags;
-        if (flags & MODEAC_MSG_FLAG) { // find any fudged ICAO records
-
-            // clear the current A,C and S hit bits ready for this attempt
-            a->modeACflags = flags & ~(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT);
-
-            trackUpdateAircraftModeA(a);  // and attempt to match them with Mode-S
+    // scan aircraft list, look for matches
+    for (struct aircraft *a = Modes.aircrafts; a; a = a->next) {
+        if ((now - a->seen) > 5000) {
+            continue;
         }
-        a = a->next;
+
+        // match on Mode A
+        if (trackDataValid(&a->squawk_valid)) {
+            unsigned i = modeAToIndex(a->squawk);
+            if ((modeAC_count[i] - modeAC_lastcount[i]) >= TRACK_MODEAC_MIN_MESSAGES) {
+                a->modeA_hit = 1;
+                modeAC_match[i] = (modeAC_match[i] ? 0xFFFFFFFF : a->addr);
+            }
+        }
+
+        // match on Mode C (+/- 100ft)
+        if (trackDataValid(&a->altitude_baro_valid)) {
+            int modeC = (a->altitude_baro + 49) / 100;
+
+            unsigned modeA = modeCToModeA(modeC);
+            unsigned i = modeAToIndex(modeA);
+            if (modeA && (modeAC_count[i] - modeAC_lastcount[i]) >= TRACK_MODEAC_MIN_MESSAGES) {
+                a->modeC_hit = 1;
+                modeAC_match[i] = (modeAC_match[i] ? 0xFFFFFFFF : a->addr);
+            }
+
+            modeA = modeCToModeA(modeC + 1);
+            i = modeAToIndex(modeA);
+            if (modeA && (modeAC_count[i] - modeAC_lastcount[i]) >= TRACK_MODEAC_MIN_MESSAGES) {
+                a->modeC_hit = 1;
+                modeAC_match[i] = (modeAC_match[i] ? 0xFFFFFFFF : a->addr);
+            }
+
+            modeA = modeCToModeA(modeC - 1);
+            i = modeAToIndex(modeA);
+            if (modeA && (modeAC_count[i] - modeAC_lastcount[i]) >= TRACK_MODEAC_MIN_MESSAGES) {
+                a->modeC_hit = 1;
+                modeAC_match[i] = (modeAC_match[i] ? 0xFFFFFFFF : a->addr);
+            }
+        }
+    }
+
+    // reset counts for next time
+    for (unsigned i = 0; i < 4096; ++i) {
+        if (!modeAC_count[i])
+            continue;
+
+        if ((modeAC_count[i] - modeAC_lastcount[i]) < TRACK_MODEAC_MIN_MESSAGES) {
+            if (++modeAC_age[i] > 15) {
+                // not heard from for a while, clear it out
+                modeAC_lastcount[i] = modeAC_count[i] = modeAC_age[i] = 0;
+            }
+        } else {
+            // this one is live
+            // set a high initial age for matches, so they age out rapidly
+            // and don't show up on the interactive display when the matching
+            // mode S data goes away or changes
+            if (modeAC_match[i]) {
+                modeAC_age[i] = 10;
+            } else {
+                modeAC_age[i] = 0;
+            }
+        }
+
+        modeAC_lastcount[i] = modeAC_count[i];
     }
 }
 
@@ -753,7 +1280,7 @@ static void trackRemoveStaleAircraft(uint64_t now)
 {
     struct aircraft *a = Modes.aircrafts;
     struct aircraft *prev = NULL;
-    
+
     while(a) {
         if ((now - a->seen) > TRACK_AIRCRAFT_TTL ||
             (a->messages == 1 && (now - a->seen) > TRACK_AIRCRAFT_ONEHIT_TTL)) {
@@ -773,22 +1300,39 @@ static void trackRemoveStaleAircraft(uint64_t now)
 
 #define EXPIRE(_f) do { if (a->_f##_valid.source != SOURCE_INVALID && now >= a->_f##_valid.expires) { a->_f##_valid.source = SOURCE_INVALID; } } while (0)
             EXPIRE(callsign);
-            EXPIRE(altitude);
-            EXPIRE(altitude_gnss);
-            EXPIRE(gnss_delta);
-            EXPIRE(speed);
-            EXPIRE(speed_ias);
-            EXPIRE(speed_tas);
-            EXPIRE(heading);
-            EXPIRE(heading_magnetic);
-            EXPIRE(vert_rate);
+            EXPIRE(altitude_baro);
+            EXPIRE(altitude_geom);
+            EXPIRE(geom_delta);
+            EXPIRE(gs);
+            EXPIRE(ias);
+            EXPIRE(tas);
+            EXPIRE(mach);
+            EXPIRE(track);
+            EXPIRE(track_rate);
+            EXPIRE(roll);
+            EXPIRE(mag_heading);
+            EXPIRE(true_heading);
+            EXPIRE(baro_rate);
+            EXPIRE(geom_rate);
             EXPIRE(squawk);
-            EXPIRE(category);
             EXPIRE(airground);
+            EXPIRE(nav_qnh);
+            EXPIRE(nav_altitude_mcp);
+            EXPIRE(nav_altitude_fms);
+            EXPIRE(nav_altitude_src);
+            EXPIRE(nav_heading);
+            EXPIRE(nav_modes);
             EXPIRE(cpr_odd);
             EXPIRE(cpr_even);
             EXPIRE(position);
-
+            EXPIRE(nic_a);
+            EXPIRE(nic_c);
+            EXPIRE(nic_baro);
+            EXPIRE(nac_p);
+            EXPIRE(sil);
+            EXPIRE(gva);
+            EXPIRE(sda);
+#undef EXPIRE
             prev = a; a = a->next;
         }
     }
@@ -808,6 +1352,6 @@ void trackPeriodicUpdate()
     if (now >= next_update) {
         next_update = now + 1000;
         trackRemoveStaleAircraft(now);
-        trackUpdateAircraftModeS();
+        trackMatchAC(now);
     }
 }
