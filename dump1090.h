@@ -213,6 +213,7 @@ typedef enum {
 
 typedef enum {
     COMMB_UNKNOWN,
+    COMMB_AMBIGUOUS,
     COMMB_EMPTY_RESPONSE,
     COMMB_DATALINK_CAPS,
     COMMB_GICB_CAPS,
@@ -243,6 +244,10 @@ typedef enum {
     EMERGENCY_DOWNED = 6,
     EMERGENCY_RESERVED = 7
 } emergency_t;
+
+typedef enum {
+    NAV_ALT_INVALID, NAV_ALT_UNKNOWN, NAV_ALT_AIRCRAFT, NAV_ALT_MCP, NAV_ALT_FMS
+} nav_altitude_source_t;
 
 #define MODES_NON_ICAO_ADDRESS       (1<<24) // Set on addresses to indicate they are not ICAO addresses
 
@@ -605,7 +610,7 @@ struct modesMessage {
         unsigned mcp_altitude;  // MCP/FCU selected altitude
         float    qnh;           // altimeter setting (QFE or QNH/QNE), millibars
 
-        enum { NAV_ALT_INVALID, NAV_ALT_UNKNOWN, NAV_ALT_AIRCRAFT, NAV_ALT_MCP, NAV_ALT_FMS } altitude_source;
+        nav_altitude_source_t altitude_source;
 
         nav_modes_t modes;
     } nav;

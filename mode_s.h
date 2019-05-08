@@ -93,6 +93,4 @@ static inline  __attribute__((always_inline)) unsigned getbits(unsigned char *da
     }
 }
 
-extern char ais_charset[64];
-
 #endif

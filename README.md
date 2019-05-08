@@ -6,15 +6,25 @@ customized for use within [FlightAware](http://flightaware.com)'s
 
 It is designed to build as a Debian package.
 
+## Building under stretch
+
+```bash
+$ sudo apt-get install build-essential debhelper librtlsdr-dev pkg-config dh-systemd libncurses5-dev libbladerf-dev
+$ dpkg-buildpackage -b
+```
+
 ## Building under jessie
 
 ### Dependencies - bladeRF
 
 You will need a build of libbladeRF. You can build packages from source:
 
-$ git clone https://github.com/Nuand/bladeRF.git
-$ cd bladeRF
+```bash
+$ git clone https://github.com/Nuand/bladeRF.git  
+$ cd bladeRF  
+$ git checkout 2017.12-rc1  
 $ dpkg-buildpackage -b
+```
 
 Previously, the dump1090 webmap used Google's map API. As of July 2016, Google's policy on keyless use of their
 API has changed and it's no longer practical to use that API. To avoid having a completely nonfunctional
@@ -68,16 +78,16 @@ see https://flightaware.com/adsb/piaware/install
 
 ### Dependencies - rtlsdr
 
-This is packaged with jessie. "sudo apt-get install librtlsdr-dev"
+This is packaged with jessie. `sudo apt-get install librtlsdr-dev`
 
 ### Actually building it
 
-Nothing special, just build it ("dpkg-buildpackage -b")
+Nothing special, just build it (`dpkg-buildpackage -b`)
 
 ## Building under wheezy
 
-First run "prepare-wheezy-tree.sh". This will create a package tree in
-package-wheezy/. Build in there ("dpkg-buildpackage -b")
+First run `prepare-wheezy-tree.sh`. This will create a package tree in
+package-wheezy/. Build in there (`dpkg-buildpackage -b`)
 
 The wheezy build does not include bladeRF support.
 
@@ -87,10 +97,10 @@ You can probably just run "make" after installing the required dependencies.
 Binaries are built in the source directory; you will need to arrange to
 install them (and a method for starting them) yourself.
 
-"make BLADERF=no" will disable bladeRF support and remove the dependency on
+``make BLADERF=no`` will disable bladeRF support and remove the dependency on
 libbladeRF.
 
-"make RTLSDR=no" will disable rtl-sdr support and remove the dependency on
+``make RTLSDR=no`` will disable rtl-sdr support and remove the dependency on 
 librtlsdr.
 
 ````

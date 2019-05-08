@@ -19,3 +19,5 @@ package-wheezy
 .directory
 xcodebuild
 .idea
+oneoff/convert_benchmark
+oneoff/decode_comm_b

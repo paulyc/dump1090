@@ -23,6 +23,11 @@
 #include <libbladeRF.h>
 #include <inttypes.h>
 
+// Polyfill for the older bladerf API
+#if defined(LIBBLADERF_API_VERSION) && (LIBBLADERF_API_VERSION < 0x02000000)
+typedef unsigned int bladerf_frequency;
+#endif
+
 static struct {
     const char *device_str;
     const char *fpga_path;
