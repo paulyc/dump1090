@@ -92,9 +92,9 @@ set(LIB_SOURCES
 	stats.c stats.h
 	track.c track.h
 	util.c util.h
-	dump1090-impl.c
-	faup1090-impl.c
-	view1090-impl.c
+	dump1090.c
+	faup1090.c
+	view1090.c
 )
 
 if(APPLE)
@@ -139,11 +139,11 @@ set_target_properties(
 	SOVERSION 0
 )
 
-add_executable(dump1090 dump1090.c)
+add_executable(dump1090 dump1090-main.c)
 target_link_libraries(dump1090 1090)
-add_executable(faup1090 faup1090.c)
+add_executable(faup1090 faup1090-main.c)
 target_link_libraries(faup1090 1090)
-add_executable(view1090 view1090.c)
+add_executable(view1090 view1090-main.c)
 target_link_libraries(view1090 1090)
 
 INSTALL(
