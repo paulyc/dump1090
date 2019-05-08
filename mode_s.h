@@ -21,8 +21,6 @@
 #ifndef MODE_S_H
 #define MODE_S_H
 
-#include <assert.h>
-
 //
 // Functions exported from mode_s.c
 //

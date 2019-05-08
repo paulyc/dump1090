@@ -48,12 +48,7 @@
 //   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "dump1090.h"
-
-/* for PRIX64 */
-#include <inttypes.h>
-
-#include <assert.h>
-#include <stdarg.h>
+#include "net_io.h"
 
 //
 // ============================= Networking =============================
@@ -79,7 +74,7 @@ static void send_sbs_heartbeat(struct net_service *service);
 static void writeFATSVEvent(struct modesMessage *mm, struct aircraft *a);
 static void writeFATSVPositionUpdate(float lat, float lon, float alt);
 
-static void autoset_modeac();
+static void autoset_modeac(void);
 
 //
 //=========================================================================
@@ -326,9 +321,9 @@ static void flushWrites(struct net_writer *writer) {
             continue;
         if (c->service == writer->service) {
 #ifndef _WIN32
-            int nwritten = write(c->fd, writer->data, writer->dataUsed);
+            size_t nwritten = write(c->fd, writer->data, writer->dataUsed);
 #else
-            int nwritten = send(c->fd, writer->data, writer->dataUsed, 0 );
+            size_t nwritten = send(c->fd, writer->data, writer->dataUsed, 0 );
 #endif
             if (nwritten != writer->dataUsed) {
                 modesCloseClient(c);
@@ -369,6 +364,69 @@ static void completeWrite(struct net_writer *writer, void *endptr) {
     if (writer->dataUsed >= Modes.net_output_flush_size) {
         flushWrites(writer);
     }
+}
+
+const uint8_t BEAST_MSG_DELIMITER = 0x1a;
+
+ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t beastMsgLen) {
+    if (mm == NULL || beastMsgOut == NULL || beastMsgLen < MAX_BEAST_MSG_LEN) {
+        return -EINVAL;
+    }
+    int msgLen = mm->msgbits / 8;
+    uint8_t *frame = mm->msg;
+    const uint8_t *beastMsgStart = beastMsgOut;
+    *beastMsgOut++ = BEAST_MSG_DELIMITER;
+    switch (msgLen) {
+        case MODEAC_MSG_BYTES:
+            *beastMsgOut++ = '1';
+            break;
+        case MODES_SHORT_MSG_BYTES:
+            *beastMsgOut++ = '2';
+            break;
+        case MODES_LONG_MSG_BYTES:
+            *beastMsgOut++ = '3';
+            break;
+        default:
+            return -EILSEQ;
+            break;
+    }
+
+    /* timestamp, big-endian, 6-byte */
+    union {
+        uint64_t mlatTimestamp;
+        uint8_t bytes[8];
+    } ts;
+    ts.mlatTimestamp = htobe64(mm->timestampMsg & 0x0000FFFFFFFFFFFF);
+    for (uint8_t *from = ts.bytes; from < ts.bytes+6; ++from) {
+        *beastMsgOut++ = *from;
+        if (*from == BEAST_MSG_DELIMITER) { // escape delimiter
+            *beastMsgOut++ = BEAST_MSG_DELIMITER;
+        }
+    }
+
+    if (mm->signalLevel <= 0.0) {
+        *beastMsgOut++ = 0;
+    } else if (mm->signalLevel >= 1.0) {
+        *beastMsgOut++ = UCHAR_MAX;
+    } else {
+        const uint8_t level = (const uint8_t)(sqrt(mm->signalLevel) * UCHAR_MAX);
+        *beastMsgOut++ = level;
+        if (level == BEAST_MSG_DELIMITER) {
+            *beastMsgOut++ = BEAST_MSG_DELIMITER;
+        }
+    }
+
+    while (msgLen-- > 0) {
+        *beastMsgOut++ = *frame;
+        if (*frame++ == BEAST_MSG_DELIMITER) {
+            *beastMsgOut++ = BEAST_MSG_DELIMITER;
+        }
+    }
+
+    const size_t bytesWritten = beastMsgOut - beastMsgStart;
+    assert(bytesWritten <= MAX_BEAST_MSG_LEN);
+
+    return bytesWritten;
 }
 
 //
@@ -523,7 +581,6 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     case 20:
         msgType = 5;
         break;
-        break;
 
     case 5:
     case 21:
@@ -541,6 +598,7 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
 
     case 17:
     case 18:
+    case 19:
         if (mm->metype >= 1 && mm->metype <= 4) {
             msgType = 1;
         } else if (mm->metype >= 5 && mm->metype <=  8) {
@@ -723,19 +781,19 @@ static void send_sbs_heartbeat(struct net_service *service)
 void modesQueueOutput(struct modesMessage *mm, struct aircraft *a) {
     int is_mlat = (mm->source == SOURCE_MLAT);
 
-    if (a && !is_mlat && mm->correctedbits < 2) {
+    if (a && !is_mlat && (true || mm->correctedbits < 2)) {
         // Don't ever forward 2-bit-corrected messages via SBS output.
         // Don't ever forward mlat messages via SBS output.
         modesSendSBSOutput(mm, a);
     }
 
-    if (!is_mlat && (Modes.net_verbatim || mm->correctedbits < 2)) {
+    if (!is_mlat && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
         // Forward 2-bit-corrected messages via raw output only if --net-verbatim is set
         // Don't ever forward mlat messages via raw output.
         modesSendRawOutput(mm);
     }
 
-    if ((!is_mlat || Modes.forward_mlat) && (Modes.net_verbatim || mm->correctedbits < 2)) {
+    if ((!is_mlat || Modes.forward_mlat) && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
         // Forward 2-bit-corrected messages via beast output only if --net-verbatim is set
         // Forward mlat messages via beast output only if --forward-mlat is set
         modesSendBeastOutput(mm);
@@ -1982,7 +2040,8 @@ static void writeFATSVEvent(struct modesMessage *mm, struct aircraft *a)
 
     case 17:
     case 18:
-        // DF 17/18: extended squitter
+    case 19:
+        // DF 17/18/19: extended squitter
         if (mm->metype == 28 && mm->mesub == 2 && memcmp(mm->ME, &a->fatsv_emitted_es_acas_ra, 7) != 0) {
             // type 28 subtype 2: ACAS RA report
             // first byte has the type/subtype, remaining bytes match the BDS 3,0 format

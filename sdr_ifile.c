@@ -82,6 +82,7 @@ void ifileShowHelp()
     printf("--ifile <path>           read samples from given file ('-' for stdin)\n");
     printf("--iformat <type>         set sample format (UC8, SC16, SC16Q11)\n");
     printf("--throttle               process samples at the original capture speed\n");
+    //printf("--oversample <rate>      oversampling multiple of 2.4 MHz\n");
     printf("\n");
 }
 
@@ -159,7 +160,7 @@ bool ifileOpen(void)
     }
 
     ifile.converter = init_converter(ifile.input_format,
-                                     Modes.sample_rate,
+                                     MODES_SAMPLE_RATE,
                                      Modes.dc_filter,
                                      &ifile.converter_state);
     if (!ifile.converter) {
@@ -206,14 +207,14 @@ void ifileRun()
         pthread_mutex_unlock(&Modes.data_mutex);
 
         // Compute the sample timestamp for the start of the block
-        outbuf->sampleTimestamp = sampleCounter * 12e6 / Modes.sample_rate;
+        outbuf->sampleTimestamp = sampleCounter * 12e6 / MODES_SAMPLE_RATE;
         sampleCounter += MODES_MAG_BUF_SAMPLES;
 
         // Copy trailing data from last block (or reset if not valid)
-        if (lastbuf->length >= Modes.trailing_samples) {
-            memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+        if (lastbuf->length >= MODES_TRAILING_SAMPLES) {
+            memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         } else {
-            memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+            memset(outbuf->data, 0, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
         }
 
         // Get the system time for the start of this block
@@ -223,22 +224,25 @@ void ifileRun()
         r = ifile.readbuf;
         while (toread) {
             nread = read(ifile.fd, r, toread);
+            //fprintf(stderr, "%zd ", nread);
             if (nread <= 0) {
                 if (nread < 0) {
                     fprintf(stderr, "ifile: error reading input file: %s\n", strerror(errno));
                 }
                 // Done.
-                eof = 1;
+                //eof = 1;
                 break;
             }
             r += nread;
             toread -= nread;
         }
 
+        //printf("y");
+
         slen = outbuf->length = MODES_MAG_BUF_SAMPLES - toread / ifile.bytes_per_sample;
 
         // Convert the new data
-        ifile.converter(ifile.readbuf, &outbuf->data[Modes.trailing_samples], slen, ifile.converter_state, &outbuf->mean_level, &outbuf->mean_power);
+        ifile.converter(ifile.readbuf, &outbuf->data[MODES_TRAILING_SAMPLES], slen, ifile.converter_state, &outbuf->mean_level, &outbuf->mean_power);
 
         if (ifile.throttle || Modes.interactive) {
             // Wait until we are allowed to release this buffer to the main thread
@@ -246,7 +250,7 @@ void ifileRun()
                 ;
 
             // compute the time we can deliver the next buffer.
-            next_buffer_delivery.tv_nsec += outbuf->length * 1e9 / Modes.sample_rate;
+            next_buffer_delivery.tv_nsec += outbuf->length * 1e9 / MODES_SAMPLE_RATE;
             normalize_timespec(&next_buffer_delivery);
         }
 

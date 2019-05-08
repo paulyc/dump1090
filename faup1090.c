@@ -2,7 +2,10 @@
 //
 // faup1090.c: cut down version that just does 30005 -> stdout forwarding
 //
-// Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+// Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2017 FlightAware LLC
+// Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 // This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
@@ -16,11 +19,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//   Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+//   Copyright (c) 2017 FlightAware LLC
+//   Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 //   All rights reserved.
 //
@@ -51,7 +56,7 @@
 
 #include <stdarg.h>
 
-void receiverPositionChanged(float lat, float lon, float alt)
+void faup1090ReceiverPositionChanged(float lat, float lon, float alt)
 {
     /* nothing */
     (void) lat;
@@ -62,12 +67,12 @@ void receiverPositionChanged(float lat, float lon, float alt)
 //
 // =============================== Initialization ===========================
 //
-static void faupInitConfig(void) {
+void faupInitConfig(void) {
     // Default everything to zero/NULL
     memset(&Modes, 0, sizeof(Modes));
 
     // Now initialise things that should not be 0/NULL to their defaults
-    Modes.nfix_crc                = 1;
+    Modes.nfix_crc                = MODES_MAX_BITERRORS;
     Modes.check_crc               = 1;
     Modes.net                     = 1;
     Modes.net_heartbeat_interval  = MODES_NET_HEARTBEAT_INTERVAL;
@@ -80,7 +85,7 @@ static void faupInitConfig(void) {
 //
 //=========================================================================
 //
-static void faupInit(void) {
+void faupInit(void) {
     // Validate the users Lat/Lon home location inputs
     if ( (Modes.fUserLat >   90.0)  // Latitude must be -90 to +90
       || (Modes.fUserLat <  -90.0)  // and
@@ -101,9 +106,22 @@ static void faupInit(void) {
     }
 
     // Prepare error correction tables
-    modesChecksumInit(1);
+    modesChecksumInit(Modes.nfix_crc);
     icaoFilterInit();
     modeACInit();
+}
+
+//
+//=========================================================================
+//
+// This function is called a few times every second by main in order to
+// perform tasks we need to do continuously, like accepting new clients
+// from the net, refreshing the screen in interactive mode, and so forth
+//
+void faupBackgroundTasks(void) {
+    icaoFilterExpire();
+    trackPeriodicUpdate();
+    modesNetPeriodicWork();
 }
 
 //
@@ -128,20 +146,7 @@ MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION
 //
 //=========================================================================
 //
-// This function is called a few times every second by main in order to
-// perform tasks we need to do continuously, like accepting new clients
-// from the net, refreshing the screen in interactive mode, and so forth
-//
-static void backgroundTasks(void) {
-    icaoFilterExpire();
-    trackPeriodicUpdate();
-    modesNetPeriodicWork();
-}
-
-//
-//=========================================================================
-//
-int main(int argc, char **argv) {
+int faup1090main(int argc, char **argv) {
     int j;
     int stdout_option = 0;
     char *bo_connect_ipaddr = "127.0.0.1";
@@ -213,6 +218,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-//
-//=========================================================================
-//
+

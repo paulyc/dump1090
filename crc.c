@@ -22,7 +22,7 @@
 #include <assert.h>
 
 // Errorinfo for "no errors"
-static struct errorinfo NO_ERRORS;
+static struct errorinfo NO_ERRORS = { 0, 0, { -1 } };
 
 // Generator polynomial for the Mode S CRC:
 #define MODES_GENERATOR_POLY 0xfff409U

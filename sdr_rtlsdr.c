@@ -61,6 +61,7 @@ static struct {
 
     iq_convert_fn converter;
     struct converter_state *converter_state;
+    int biastee;
 } RTLSDR;
 
 //
@@ -75,6 +76,7 @@ void rtlsdrInitConfig()
     RTLSDR.direct_sampling = 0;
     RTLSDR.converter = NULL;
     RTLSDR.converter_state = NULL;
+    RTLSDR.biastee = 0;
 }
 
 static void show_rtlsdr_devices()
@@ -145,6 +147,7 @@ void rtlsdrShowHelp()
     printf("--enable-agc             enable digital AGC (not tuner AGC!)\n");
     printf("--ppm <correction>       set oscillator frequency correction in PPM\n");
     printf("--direct <0|1|2>         set direct sampling mode\n");
+    printf("--biastee                enable bias-T on GPIO PIN 0 (works for rtl-sdr.com v3 dongles)\n");
     printf("\n");
 }
 
@@ -159,6 +162,8 @@ bool rtlsdrHandleOption(int argc, char **argv, int *jptr)
         RTLSDR.ppm_error = atoi(argv[++j]);
     } else if (!strcmp(argv[j], "--direct") && more) {
         RTLSDR.direct_sampling = atoi(argv[++j]);
+    } else if (!strcmp(argv[j], "--biastee") && more) {
+        RTLSDR.biastee = 1;
     } else {
         return false;
     }
@@ -248,12 +253,19 @@ bool rtlsdrOpen(void) {
 
     rtlsdr_set_freq_correction(RTLSDR.dev, RTLSDR.ppm_error);
     rtlsdr_set_center_freq(RTLSDR.dev, Modes.freq);
-    rtlsdr_set_sample_rate(RTLSDR.dev, (unsigned)Modes.sample_rate);
+    rtlsdr_set_sample_rate(RTLSDR.dev, MODES_SAMPLE_RATE);
+
+    if (RTLSDR.biastee) {
+        fprintf(stderr, "rtlsdr: enabling bias tee\n");
+        if (rtlsdr_set_bias_tee(RTLSDR.dev, RTLSDR.biastee) == -1) {
+            fprintf(stderr, "rtlsdr: device is not initialized\n");
+        }
+    }
 
     rtlsdr_reset_buffer(RTLSDR.dev);
 
     RTLSDR.converter = init_converter(INPUT_UC8,
-                                      Modes.sample_rate,
+                                      MODES_SAMPLE_RATE,
                                       Modes.dc_filter,
                                       &RTLSDR.converter_state);
     if (!RTLSDR.converter) {
@@ -321,23 +333,25 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     pthread_mutex_unlock(&Modes.data_mutex);
 
     // Compute the sample timestamp and system timestamp for the start of the block
-    outbuf->sampleTimestamp = sampleCounter * 12e6 / Modes.sample_rate;
+    outbuf->sampleTimestamp = sampleCounter * 12e6 / MODES_SAMPLE_RATE;
     sampleCounter += slen;
 
     // Get the approx system time for the start of this block
-    block_duration = 1e3 * slen / Modes.sample_rate;
+    block_duration = 1e3 * slen / MODES_SAMPLE_RATE;
     outbuf->sysTimestamp = mstime() - block_duration;
 
     // Copy trailing data from last block (or reset if not valid)
     if (outbuf->dropped == 0) {
-        memcpy(outbuf->data, lastbuf->data + lastbuf->length, Modes.trailing_samples * sizeof(uint16_t));
+        memcpy(outbuf->data, lastbuf->data + lastbuf->length, MODES_TRAILING_SAMPLES * sizeof(mag_data_t));
     } else {
-        memset(outbuf->data, 0, Modes.trailing_samples * sizeof(uint16_t));
+        for (int i = 0; i < MODES_TRAILING_SAMPLES; ++i) {
+            outbuf->data[i] = 0.0;
+        }
     }
 
     // Convert the new data
     outbuf->length = slen;
-    RTLSDR.converter(buf, &outbuf->data[Modes.trailing_samples], slen, RTLSDR.converter_state, &outbuf->mean_level, &outbuf->mean_power);
+    RTLSDR.converter(buf, &outbuf->data[MODES_TRAILING_SAMPLES], slen, RTLSDR.converter_state, &outbuf->mean_level, &outbuf->mean_power);
 
     // Push the new data to the demodulation thread
     pthread_mutex_lock(&Modes.data_mutex);

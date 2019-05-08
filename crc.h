@@ -20,8 +20,6 @@
 #ifndef DUMP1090_CRC_H
 #define DUMP1090_CRC_H
 
-#include <stdint.h>
-
 // Global max for fixable bit erros
 #define MODES_MAX_BITERRORS 2
 

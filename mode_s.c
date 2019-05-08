@@ -341,6 +341,7 @@ int scoreModesMessage(unsigned char *msg, int validbits)
 
     case 17:   // Extended squitter
     case 18:   // Extended squitter/non-transponder
+    case 19:   // Extended squitter/military
         ei = modesChecksumDiagnose(crc, msgbits);
         if (!ei)
             return -2; // can't correct errors
@@ -468,7 +469,9 @@ int decodeModesMessage(struct modesMessage *mm, unsigned char *msg)
         break;
 
     case 17:   // Extended squitter
-    case 18: { // Extended squitter/non-transponder
+    case 18:   // Extended squitter/non-transponder
+    case 19:   // Extended squitter/military
+    {
         struct errorinfo *ei;
         int addr1, addr2;
 
@@ -523,7 +526,7 @@ int decodeModesMessage(struct modesMessage *mm, unsigned char *msg)
     // decode the bulk of the message
 
     // AA (Address announced)
-    if (mm->msgtype == 11 || mm->msgtype == 17 || mm->msgtype == 18) {
+    if (mm->msgtype == 11 || mm->msgtype == 17 || mm->msgtype == 18 || mm->msgtype == 19) {
         mm->AA = mm->addr = getbits(msg, 9, 32);
     }
 
@@ -540,7 +543,7 @@ int decodeModesMessage(struct modesMessage *mm, unsigned char *msg)
     // AF (DF19 Application Field) not decoded
 
     // CA (Capability)
-    if (mm->msgtype == 11 || mm->msgtype == 17) {
+    if (mm->msgtype == 11 || mm->msgtype == 17 || mm->msgtype == 18 || mm->msgtype == 19) {
         mm->CA = getbits(msg, 6, 8);
 
         switch (mm->CA) {
@@ -1344,7 +1347,7 @@ static void decodeExtendedSquitter(struct modesMessage *mm)
     unsigned check_imf = 0;
 
     // Check CF on DF18 to work out the format of the ES and whether we need to look for an IMF bit
-    if (mm->msgtype == 18) {
+    if (mm->msgtype == 17 || mm->msgtype == 18 || mm->msgtype == 19) {
         switch (mm->CF) {
         case 0: // ADS-B Message from a non-transponder device, AA field holds 24-bit ICAO aircraft address
             mm->addrtype = ADDR_ADSB_ICAO_NT;
@@ -1705,6 +1708,10 @@ static const char *esTypeName(unsigned metype, unsigned mesub)
     case 24:
         return "Reserved for surface system status";
 
+    case 25:
+    case 26:
+        return "Reserved for unknown";
+
     case 27:
         return "Reserved for trajectory change";
 
@@ -1825,6 +1832,13 @@ void displayModesMessage(struct modesMessage *mm) {
 
     case 18:
         printf("DF:18 AA:%06X CF:%u ME:",
+               mm->AA, mm->CF);
+        print_hex_bytes(mm->ME, sizeof(mm->ME));
+        printf("\n");
+        break;
+
+    case 19:
+        printf("DF:19 AA:%06X CF:%u ME:",
                mm->AA, mm->CF);
         print_hex_bytes(mm->ME, sizeof(mm->ME));
         printf("\n");
@@ -2135,7 +2149,7 @@ void useModesMessage(struct modesMessage *mm) {
     // forward messages when we have seen two of them.
 
     if (Modes.net) {
-        if (Modes.net_verbatim || mm->msgtype == 32 || !a) {
+        if (true || Modes.net_verbatim || mm->msgtype == 32 || !a) {
             // Unconditionally send
             modesQueueOutput(mm, a);
         } else if (a->messages > 1) {

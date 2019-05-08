@@ -1,8 +1,10 @@
 // Part of dump1090, a Mode S message decoder for RTLSDR devices.
 //
-// demod_2400.h: 2.4MHz Mode S demodulator prototypes.
+// sdr_lime.h: LimeSDR support (header)
 //
-// Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2016-2017 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2017 FlightAware LLC
+// Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 // This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
@@ -17,12 +19,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#ifndef DUMP1090_DEMOD_2400_H
-#define DUMP1090_DEMOD_2400_H
+#ifndef SDR_LIMESDR_H
+#define SDR_LIMESDR_H
 
-struct mag_buf;
-
-void demodulate2400(struct mag_buf *mag);
-void demodulate2400AC(struct mag_buf *mag);
+void limesdrInitConfig();
+void limesdrShowHelp();
+bool limesdrOpen();
+void limesdrRun();
+void limesdrClose();
+bool limesdrHandleOption(int argc, char **argv, int *jptr);
 
 #endif

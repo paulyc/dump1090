@@ -50,18 +50,21 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
+#define ALLOW_AGGRESSIVE 1
+
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.13-custom"
+# define MODES_DUMP1090_VERSION     "v1.14-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-mutability"
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
 #endif
 
 // ============================= Include files ==========================
 
 #ifndef _WIN32
+    #include <assert.h>
     #include <stdio.h>
     #include <string.h>
     #include <stdlib.h>
@@ -87,6 +90,18 @@
 
 // ============================= #defines ===============================
 
+// Default version number, if not overriden by the Makefile
+#ifndef MODES_DUMP1090_VERSION
+# define MODES_DUMP1090_VERSION     "v1.14-custom"
+#endif
+
+#ifndef MODES_DUMP1090_VARIANT
+# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
+#endif
+
+#define HAVE_RTL_BIAST             1
+#define MODES_SAMPLE_RATE          2400000
+#define MODES_DEFAULT_PPM          0
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
 #define MODES_DEFAULT_HEIGHT       700
@@ -112,15 +127,17 @@
 #define MODES_SHORT_MSG_BITS    (MODES_SHORT_MSG_BYTES   * 8)
 #define MODES_LONG_MSG_SAMPLES  (MODES_LONG_MSG_BITS     * 2)
 #define MODES_SHORT_MSG_SAMPLES (MODES_SHORT_MSG_BITS    * 2)
-#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_OS_PREAMBLE_SAMPLES  (20)
-#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_PREAMBLE_SIZE     (MODES_OS_PREAMBLE_SAMPLES  * sizeof(uint16_t))
 #define MODES_OS_LONG_MSG_SAMPLES  (268)
 #define MODES_OS_SHORT_MSG_SAMPLES (135)
-#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
-#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+//#define MODES_OS_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+//#define MODES_OS_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
+
+#define MODES_TRAILING_SAMPLES ((MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * MODES_SAMPLE_RATE / 1000000)
 
 #define MODES_OUT_BUF_SIZE         (1500)
 #define MODES_OUT_FLUSH_SIZE       (MODES_OUT_BUF_SIZE - 256)
@@ -263,6 +280,8 @@ typedef enum {
 #define MAX_AMPLITUDE 65535.0
 #define MAX_POWER (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
+typedef double internal_float_t;
+
 // Include subheaders after all the #defines are in place
 
 #include "util.h"
@@ -279,22 +298,22 @@ typedef enum {
 //======================== structure declarations =========================
 
 typedef enum {
-    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF
+    SDR_NONE, SDR_IFILE, SDR_RTLSDR, SDR_BLADERF, SDR_LIMESDR
 } sdr_type_t;
 
 // Structure representing one magnitude buffer
 struct mag_buf {
-    uint16_t       *data;            // Magnitude data. Starts with Modes.trailing_samples worth of overlap from the previous block
-    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + Modes.trailing_samples.
+    mag_data_t      data[MODES_MAG_BUF_SAMPLES+MODES_TRAILING_SAMPLES];     // Magnitude data. Starts with MODES_TRAILING_SAMPLES worth of overlap from the previous block.
+    unsigned        length;          // Number of valid samples _after_ overlap. Total buffer length is buf->length + MODES_TRAILING_SAMPLES.
     uint64_t        sampleTimestamp; // Clock timestamp of the start of this block, 12MHz clock
     uint64_t        sysTimestamp;    // Estimated system time at start of block
     uint32_t        dropped;         // Number of dropped samples preceding this buffer
-    double          mean_level;      // Mean of normalized (0..1) signal level
-    double          mean_power;      // Mean of normalized (0..1) power level
+    internal_float_t mean_level;      // Mean of normalized (0..1) signal level
+    internal_float_t mean_power;      // Mean of normalized (0..1) power level
 };
 
 // Program global state
-struct {                             // Internal state
+struct modes_t {                             // Internal state
     pthread_t       reader_thread;
 
     pthread_mutex_t data_mutex;      // Mutex to synchronize buffer access
@@ -305,10 +324,8 @@ struct {                             // Internal state
     unsigned        first_filled_buffer;                  // Entry in mag_buffers that has valid data and will be demodulated next. If equal to next_free_buffer, there is no unprocessed data.
     struct timespec reader_cpu_accumulator;               // CPU time used by the reader thread, copied out and reset by the main thread under the mutex
 
-    unsigned        trailing_samples;                     // extra trailing samples in magnitude buffers
-    double          sample_rate;                          // actual sample rate in use (in hz)
+    //double          sample_rate;                          // actual sample rate in use (in hz)
 
-    uint16_t       *log10lut;        // Magnitude -> log10 lookup table
     int             exit;            // Exit from the main loop when true (2 = unclean exit)
 
     // Sample conversion
@@ -318,6 +335,10 @@ struct {                             // Internal state
     char *        dev_name;
     int           gain;
     int           freq;
+    int           ppm_error;
+#ifdef HAVE_RTL_BIAST
+    int           enable_rtlsdr_biast;
+#endif
 
     // Networking
     char           aneterr[ANET_ERR_LEN];
@@ -344,7 +365,7 @@ struct {                             // Internal state
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
     uint64_t net_heartbeat_interval; // TCP heartbeat interval (milliseconds)
-    int   net_output_flush_size;     // Minimum Size of output data
+    size_t   net_output_flush_size;     // Minimum Size of output data
     uint64_t net_output_flush_interval; // Maximum interval (in milliseconds) between outputwrites
     char *net_output_raw_ports;      // List of raw output TCP ports
     char *net_input_raw_ports;       // List of raw input TCP ports
@@ -378,6 +399,7 @@ struct {                             // Internal state
     // User details
     double fUserLat;                // Users receiver/antenna lat/lon needed for initial surface location
     double fUserLon;                // Users receiver/antenna lat/lon needed for initial surface location
+    double fUserAltM;               // Users receiver/antenna altitude in meters
     int    bUserFlags;              // Flags relating to the user details
     double maxRange;                // Absolute maximum decoding range, in *metres*
 
@@ -392,7 +414,9 @@ struct {                             // Internal state
     int stats_latest_1min;
     struct stats stats_5min;
     struct stats stats_15min;
-} Modes;
+};
+
+extern struct modes_t Modes;
 
 // The struct we use to store information about a decoded message.
 struct modesMessage {
@@ -619,8 +643,35 @@ void  interactiveInit(void);
 void  interactiveShowData(void);
 void  interactiveCleanup(void);
 
+void log_with_timestamp(const char *format, ...) __attribute__((format (printf, 1, 2) ));
+
 // Provided by dump1090.c / view1090.c / faup1090.c
+void dump1090ReceiverPositionChanged(float lat, float lon, float alt);
+void faup1090ReceiverPositionChanged(float lat, float lon, float alt);
+void view1090ReceiverPositionChanged(float lat, float lon, float alt);
 void receiverPositionChanged(float lat, float lon, float alt);
+
+void faupInitConfig(void);
+void faupInit(void);
+void faupBackgroundTasks(void);
+
+void view1090InitConfig(void);
+void view1090Init(void);
+
+void modesInitConfig(void);
+void modesInit(void);
+void modesInitStats(void);
+void *readerThreadEntryPoint(void *arg);
+void snipMode(int level);
+void display_total_stats(void);
+void mainLoopNetOnly(void);
+void mainLoopSdr(void);
+void backgroundTasks(void);
+void install_signal_handlers(bool reset);
+
+int dump1090main(int argc, char **argv);
+int faup1090main(int argc, char **argv);
+int view1090main(int argc, char **argv);
 
 #ifdef __cplusplus
 }

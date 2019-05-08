@@ -1,3 +1,7 @@
+build/
+*.kate-swp
+lib1090.so*
+lib1090.dylib*
 *.o
 dump1090
 testfiles/*.bin
@@ -11,5 +15,9 @@ untrackedDeveloperSettings.js
 view1090
 faup1090
 package-wheezy
+.DS_Store
+.directory
+xcodebuild
+.idea
 oneoff/convert_benchmark
 oneoff/decode_comm_b

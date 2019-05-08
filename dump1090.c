@@ -1,8 +1,11 @@
 // Part of dump1090, a Mode S message decoder for RTLSDR devices.
 //
-// dump1090.c: main program & miscellany
+// dump1090.c: functions mainly used by dump1090 executable
 //
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
 // Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+// Copyright (c) 2017 FlightAware LLC
+// Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 // This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
@@ -16,11 +19,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//   Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
+//   Copyright (c) 2017 FlightAware LLC
+//   Copyright (C) 2018 Paul Ciarlo <paul.ciarlo@gmail.com>
 //
 //   All rights reserved.
 //
@@ -55,9 +60,35 @@
 // ============================= Utility functions ==========================
 //
 
-static void log_with_timestamp(const char *format, ...) __attribute__((format (printf, 1, 2) ));
+struct modes_t Modes;
 
-static void log_with_timestamp(const char *format, ...)
+static bool reset_signal_handlers = true;
+
+static void sigintHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    if (reset_signal_handlers) {
+        signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
+    }
+    Modes.exit = 1;           // Signal to threads that we are done
+    log_with_timestamp("Caught SIGINT, shutting down..\n");
+}
+
+static void sigtermHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    if (reset_signal_handlers) {
+        signal(SIGTERM, SIG_DFL); // reset signal handler - bit extra safety
+    }
+    Modes.exit = 1;           // Signal to threads that we are done
+    log_with_timestamp("Caught SIGTERM, shutting down..\n");
+}
+
+void install_signal_handlers(bool reset) {
+    reset_signal_handlers = reset;
+    signal(SIGINT, sigintHandler);
+    signal(SIGTERM, sigtermHandler);
+}
+
+void log_with_timestamp(const char *format, ...)
 {
     char timebuf[128];
     char msg[1024];
@@ -78,24 +109,17 @@ static void log_with_timestamp(const char *format, ...)
     fprintf(stderr, "%s  %s\n", timebuf, msg);
 }
 
-static void sigintHandler(int dummy) {
-    MODES_NOTUSED(dummy);
-    signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
-    Modes.exit = 1;           // Signal to threads that we are done
-    log_with_timestamp("Caught SIGINT, shutting down..\n");
-}
-
-static void sigtermHandler(int dummy) {
-    MODES_NOTUSED(dummy);
-    signal(SIGTERM, SIG_DFL); // reset signal handler - bit extra safety
-    Modes.exit = 1;           // Signal to threads that we are done
-    log_with_timestamp("Caught SIGTERM, shutting down..\n");
+void dump1090ReceiverPositionChanged(float lat, float lon, float alt)
+{
+    log_with_timestamp("Autodetected receiver location: %.5f, %.5f at %.0fm AMSL", lat, lon, alt);
+    writeJsonToFile("receiver.json", generateReceiverJson); // location changed
 }
 
 void receiverPositionChanged(float lat, float lon, float alt)
 {
-    log_with_timestamp("Autodetected receiver location: %.5f, %.5f at %.0fm AMSL", lat, lon, alt);
-    writeJsonToFile("receiver.json", generateReceiverJson); // location changed
+    dump1090ReceiverPositionChanged(lat, lon, alt);
+    faup1090ReceiverPositionChanged(lat, lon, alt);
+    view1090ReceiverPositionChanged(lat, lon, alt);
 }
 
 
@@ -110,6 +134,7 @@ void modesInitConfig(void) {
     Modes.gain                    = MODES_MAX_GAIN;
     Modes.freq                    = MODES_DEFAULT_FREQ;
     Modes.check_crc               = 1;
+    Modes.nfix_crc                = MODES_MAX_BITERRORS;
     Modes.net_heartbeat_interval  = MODES_NET_HEARTBEAT_INTERVAL;
     Modes.net_input_raw_ports     = strdup("30001");
     Modes.net_output_raw_ports    = strdup("30002");
@@ -124,6 +149,24 @@ void modesInitConfig(void) {
 
     sdrInitConfig();
 }
+
+void modesInitStats(void) {
+    Modes.stats_current.start = Modes.stats_current.end =
+        Modes.stats_alltime.start = Modes.stats_alltime.end =
+        Modes.stats_periodic.start = Modes.stats_periodic.end =
+        Modes.stats_5min.start = Modes.stats_5min.end =
+        Modes.stats_15min.start = Modes.stats_15min.end = mstime();
+
+    for (int j = 0; j < 15; ++j)
+        Modes.stats_1min[j].start = Modes.stats_1min[j].end = Modes.stats_current.start;
+
+    // write initial json files so they're not missing
+    writeJsonToFile("receiver.json", generateReceiverJson);
+    writeJsonToFile("stats.json", generateStatsJson);
+    writeJsonToFile("aircraft.json", generateAircraftJson);
+}
+
+
 //
 //=========================================================================
 //
@@ -133,23 +176,7 @@ void modesInit(void) {
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
 
-    Modes.sample_rate = 2400000.0;
-
-    // Allocate the various buffers used by Modes
-    Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * Modes.sample_rate;
-
-    if ( ((Modes.log10lut   = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) )
-    {
-        fprintf(stderr, "Out of memory allocating data buffer.\n");
-        exit(1);
-    }
-
     for (i = 0; i < MODES_MAG_BUFFERS; ++i) {
-        if ( (Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES+Modes.trailing_samples, sizeof(uint16_t))) == NULL ) {
-            fprintf(stderr, "Out of memory allocating magnitude buffer.\n");
-            exit(1);
-        }
-
         Modes.mag_buffers[i].length = 0;
         Modes.mag_buffers[i].dropped = 0;
         Modes.mag_buffers[i].sampleTimestamp = 0;
@@ -181,12 +208,6 @@ void modesInit(void) {
       {Modes.net_output_flush_interval = MODES_OUT_FLUSH_INTERVAL;}
     if (Modes.net_sndbuf_size > (MODES_NET_SNDBUF_MAX))
       {Modes.net_sndbuf_size = MODES_NET_SNDBUF_MAX;}
-
-    // Prepare the log10 lookup table: 100log10(x)
-    Modes.log10lut[0] = 0; // poorly defined..
-    for (i = 1; i <= 65535; i++) {
-        Modes.log10lut[i] = (uint16_t) round(100.0 * log10(i));
-    }
 
     // Prepare error correction tables
     modesChecksumInit(Modes.nfix_crc);
@@ -252,96 +273,8 @@ void snipMode(int level) {
         putchar(q);
     }
 }
-//
-// ================================ Main ====================================
-//
-void showHelp(void) {
 
-    printf("-----------------------------------------------------------------------------\n");
-    printf("| dump1090 ModeS Receiver     %45s |\n", MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION);
-    printf("| build options: %-58s |\n",
-           ""
-#ifdef ENABLE_RTLSDR
-           "ENABLE_RTLSDR "
-#endif
-#ifdef ENABLE_BLADERF
-           "ENABLE_BLADERF "
-#endif
-#ifdef SC16Q11_TABLE_BITS
-    // This is a little silly, but that's how the preprocessor works..
-#define _stringize(x) #x
-#define stringize(x) _stringize(x)
-           "SC16Q11_TABLE_BITS=" stringize(SC16Q11_TABLE_BITS)
-#undef stringize
-#undef _stringize
-#endif
-           );
-    printf("-----------------------------------------------------------------------------\n");
-    printf("\n");
-
-    sdrShowHelp();
-
-    printf(
-"      Common options\n"
-"\n"
-"--gain <db>              Set gain (default: max gain. Use -10 for auto-gain)\n"
-"--freq <hz>              Set frequency (default: 1090 Mhz)\n"
-"--interactive            Interactive mode refreshing data on screen. Implies --throttle\n"
-"--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60)\n"
-"--raw                    Show only messages hex values\n"
-"--net                    Enable networking\n"
-"--modeac                 Enable decoding of SSR Modes 3/A & 3/C\n"
-"--no-modeac-auto         Don't enable Mode A/C if requested by a Beast connection\n"
-"--net-only               Enable just networking, no RTL device or file used\n"
-"--net-bind-address <ip>  IP address to bind to (default: Any; Use 127.0.0.1 for private)\n"
-"--net-ri-port <ports>    TCP raw input listen ports  (default: 30001)\n"
-"--net-ro-port <ports>    TCP raw output listen ports (default: 30002)\n"
-"--net-sbs-port <ports>   TCP BaseStation output listen ports (default: 30003)\n"
-"--net-bi-port <ports>    TCP Beast input listen ports  (default: 30004,30104)\n"
-"--net-bo-port <ports>    TCP Beast output listen ports (default: 30005)\n"
-"--net-ro-size <size>     TCP output minimum size (default: 0)\n"
-"--net-ro-interval <rate> TCP output memory flush rate in seconds (default: 0)\n"
-"--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec; 0 to disable)\n"
-"--net-buffer <n>         TCP buffer size 64Kb * (2^n) (default: n=0, 64Kb)\n"
-"--net-verbatim           Do not apply CRC corrections to messages we forward; send unchanged\n"
-"--forward-mlat           Allow forwarding of received mlat results to output ports\n"
-"--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
-"--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
-"--max-range <distance>   Absolute maximum range for position decoding (in nm, default: 300)\n"
-"--fix                    Enable single-bits error correction using CRC\n"
-"--no-fix                 Disable single-bits error correction using CRC\n"
-"--no-crc-check           Disable messages with broken CRC (discouraged)\n"
-#ifdef ALLOW_AGGRESSIVE
-"--aggressive             More CPU for more messages (two bits fixes, ...)\n"
-#endif
-"--mlat                   display raw messages in Beast ascii mode\n"
-"--stats                  With --ifile print stats at exit. No other output\n"
-"--stats-range            Collect/show range histogram\n"
-"--stats-every <seconds>  Show and reset stats every <seconds> seconds\n"
-"--onlyaddr               Show only ICAO addresses (testing purposes)\n"
-"--metric                 Use metric units (meters, km/h, ...)\n"
-"--gnss                   Show altitudes as HAE/GNSS (with H suffix) when available\n"
-"--snip <level>           Strip IQ file removing samples < level\n"
-"--debug <flags>          Debug mode (verbose), see README for details\n"
-"--quiet                  Disable output to stdout. Use for daemon applications\n"
-"--show-only <addr>       Show only messages from the given ICAO on stdout\n"
-"--write-json <dir>       Periodically write json output to <dir> (for serving by a separate webserver)\n"
-"--write-json-every <t>   Write json output every t seconds (default 1)\n"
-"--json-location-accuracy <n>  Accuracy of receiver location in json metadata: 0=no location, 1=approximate, 2=exact\n"
-"--dcfilter               Apply a 1Hz DC filter to input data (requires more CPU)\n"
-"--help                   Show this help\n"
-"\n"
-"Debug mode flags: d = Log frames decoded with errors\n"
-"                  D = Log frames decoded with zero errors\n"
-"                  c = Log frames with bad CRC\n"
-"                  C = Log frames with good CRC\n"
-"                  p = Log frames with bad preamble\n"
-"                  n = Log network debugging info\n"
-"                  j = Log frames to frames.js, loadable by debug.html\n"
-    );
-}
-
-static void display_total_stats(void)
+void display_total_stats(void)
 {
     struct stats added;
     add_stats(&Modes.stats_alltime, &Modes.stats_current, &added);
@@ -351,6 +284,103 @@ static void display_total_stats(void)
 //
 //=========================================================================
 //
+
+
+void mainLoopNetOnly(void) {
+    while (!Modes.exit) {
+        struct timespec start_time;
+
+        start_cpu_timing(&start_time);
+        backgroundTasks();
+        end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+        usleep(100000);
+    }
+}
+
+void mainLoopSdr(void) {
+    int watchdogCounter = 10; // about 1 second
+
+    // Create the thread that will read the data from the device.
+    pthread_mutex_lock(&Modes.data_mutex);
+    pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
+
+    while (!Modes.exit) {
+        struct timespec start_time;
+
+        if (Modes.first_free_buffer == Modes.first_filled_buffer) {
+            /* wait for more data.
+            * we should be getting data every 50-60ms. wait for max 100ms before we give up and do some background work.
+            * this is fairly aggressive as all our network I/O runs out of the background work!
+            */
+
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 100000000;
+            normalize_timespec(&ts);
+
+            pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts); // This unlocks Modes.data_mutex, and waits for Modes.data_cond
+        }
+
+        // Modes.data_mutex is locked, and possibly we have data.
+
+        // copy out reader CPU time and reset it
+        add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
+        Modes.reader_cpu_accumulator.tv_sec = 0;
+        Modes.reader_cpu_accumulator.tv_nsec = 0;
+
+        if (Modes.first_free_buffer != Modes.first_filled_buffer) {
+            // FIFO is not empty, process one buffer.
+
+            struct mag_buf *buf;
+
+            start_cpu_timing(&start_time);
+            buf = &Modes.mag_buffers[Modes.first_filled_buffer];
+
+            // Process data after releasing the lock, so that the capturing
+            // thread can read data while we perform computationally expensive
+            // stuff at the same time.
+            pthread_mutex_unlock(&Modes.data_mutex);
+
+            demodulate2400(buf);
+            if (Modes.mode_ac) {
+                demodulate2400AC(buf);
+            }
+
+            Modes.stats_current.samples_processed += buf->length;
+            Modes.stats_current.samples_dropped += buf->dropped;
+            end_cpu_timing(&start_time, &Modes.stats_current.demod_cpu);
+
+            // Mark the buffer we just processed as completed.
+            pthread_mutex_lock(&Modes.data_mutex);
+            Modes.first_filled_buffer = (Modes.first_filled_buffer + 1) % MODES_MAG_BUFFERS;
+            pthread_cond_signal(&Modes.data_cond);
+            pthread_mutex_unlock(&Modes.data_mutex);
+            watchdogCounter = 10;
+        } else {
+            // Nothing to process this time around.
+            pthread_mutex_unlock(&Modes.data_mutex);
+            if (--watchdogCounter <= 0) {
+                log_with_timestamp("No data received from the SDR for a long time, it may have wedged");
+                watchdogCounter = 600;
+            }
+        }
+
+        start_cpu_timing(&start_time);
+        backgroundTasks();
+        end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+        pthread_mutex_lock(&Modes.data_mutex);
+    }
+
+    pthread_mutex_unlock(&Modes.data_mutex);
+
+    log_with_timestamp("Waiting for receive thread termination");
+    pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
+    pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup - only after the reader thread is dead!
+    pthread_mutex_destroy(&Modes.data_mutex);
+}
+
 // This function is called a few times every second by main in order to
 // perform tasks we need to do continuously, like accepting new clients
 // from the net, refreshing the screen in interactive mode, and so forth
@@ -452,23 +482,99 @@ void backgroundTasks(void) {
 }
 
 //
-//=========================================================================
+// ================================ Main ====================================
 //
-//
-//=========================================================================
-//
-int main(int argc, char **argv) {
-    int j;
+static void showHelp(void) {
 
-    // Set sane defaults
-    modesInitConfig();
+    printf("-----------------------------------------------------------------------------\n");
+    printf("| dump1090 ModeS Receiver     %45s |\n", MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION);
+    printf("| build options: %-58s |\n",
+           ""
+#ifdef ENABLE_RTLSDR
+           "ENABLE_RTLSDR "
+#endif
+#ifdef ENABLE_BLADERF
+           "ENABLE_BLADERF "
+#endif
+#ifdef SC16Q11_TABLE_BITS
+    // This is a little silly, but that's how the preprocessor works..
+#define _stringize(x) #x
+#define stringize(x) _stringize(x)
+           "SC16Q11_TABLE_BITS=" stringize(SC16Q11_TABLE_BITS)
+#undef stringize
+#undef _stringize
+#endif
+           );
+    printf("-----------------------------------------------------------------------------\n");
+    printf("\n");
 
-    // signal handlers:
-    signal(SIGINT, sigintHandler);
-    signal(SIGTERM, sigtermHandler);
+    sdrShowHelp();
 
-    // Parse the command line options
-    for (j = 1; j < argc; j++) {
+    printf(
+"      Common options\n"
+"\n"
+"--gain <db>              Set gain (default: max gain. Use -10 for auto-gain)\n"
+"--freq <hz>              Set frequency (default: 1090 Mhz)\n"
+"--interactive            Interactive mode refreshing data on screen. Implies --throttle\n"
+"--interactive-rows <num> Max number of rows in interactive mode (default: 22)\n"
+"--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60)\n"
+"--raw                    Show only messages hex values\n"
+"--net                    Enable networking\n"
+"--modeac                 Enable decoding of SSR Modes 3/A & 3/C\n"
+"--no-modeac-auto         Don't enable Mode A/C if requested by a Beast connection\n"
+"--net-only               Enable just networking, no RTL device or file used\n"
+"--net-bind-address <ip>  IP address to bind to (default: Any; Use 127.0.0.1 for private)\n"
+"--net-ri-port <ports>    TCP raw input listen ports  (default: 30001)\n"
+"--net-ro-port <ports>    TCP raw output listen ports (default: 30002)\n"
+"--net-sbs-port <ports>   TCP BaseStation output listen ports (default: 30003)\n"
+"--net-bi-port <ports>    TCP Beast input listen ports  (default: 30004,30104)\n"
+"--net-bo-port <ports>    TCP Beast output listen ports (default: 30005)\n"
+"--net-ro-size <size>     TCP output minimum size (default: 0)\n"
+"--net-ro-interval <rate> TCP output memory flush rate in seconds (default: 0)\n"
+"--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec; 0 to disable)\n"
+"--net-buffer <n>         TCP buffer size 64Kb * (2^n) (default: n=0, 64Kb)\n"
+"--net-verbatim           Do not apply CRC corrections to messages we forward; send unchanged\n"
+"--forward-mlat           Allow forwarding of received mlat results to output ports\n"
+"--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
+"--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
+"--max-range <distance>   Absolute maximum range for position decoding (in nm, default: 300)\n"
+"--fix                    Enable single-bits error correction using CRC\n"
+"--no-fix                 Disable single-bits error correction using CRC\n"
+"--no-crc-check           Disable messages with broken CRC (discouraged)\n"
+"--aggressive             More CPU for more messages (two bits fixes, ...)\n"
+"--mlat                   display raw messages in Beast ascii mode\n"
+"--stats                  Print stats at exit\n"
+"--stats-range            Collect/show range histogram\n"
+"--stats-every <seconds>  Show and reset stats every <seconds> seconds\n"
+"--onlyaddr               Show only ICAO addresses (testing purposes)\n"
+"--metric                 Use metric units (meters, km/h, ...)\n"
+"--gnss                   Show altitudes as HAE/GNSS (with H suffix) when available\n"
+"--snip <level>           Strip IQ file removing samples < level\n"
+"--debug <flags>          Debug mode (verbose), see README for details\n"
+"--quiet                  Disable output to stdout. Use for daemon applications\n"
+"--show-only <addr>       Show only messages from the given ICAO on stdout\n"
+"--ppm <error>            Set receiver error in parts per million (default 0)\n"
+#ifdef HAVE_RTL_BIAST
+"--enable-rtlsdr-biast    Set bias tee supply on (default off)\n"
+#endif
+"--write-json <dir>       Periodically write json output to <dir> (for serving by a separate webserver)\n"
+"--write-json-every <t>   Write json output every t seconds (default 1)\n"
+"--json-location-accuracy <n>  Accuracy of receiver location in json metadata: 0=no location, 1=approximate, 2=exact\n"
+"--dcfilter               Apply a 1Hz DC filter to input data (requires more CPU)\n"
+"--help                   Show this help\n"
+"\n"
+"Debug mode flags: d = Log frames decoded with errors\n"
+"                  D = Log frames decoded with zero errors\n"
+"                  c = Log frames with bad CRC\n"
+"                  C = Log frames with good CRC\n"
+"                  p = Log frames with bad preamble\n"
+"                  n = Log network debugging info\n"
+"                  j = Log frames to frames.js, loadable by debug.html\n"
+    );
+}
+
+static void dump1090ParseArgs(int argc, char **argv) {
+    for (int j = 1; j < argc; j++) {
         int more = j+1 < argc; // There are more arguments
 
         if (!strcmp(argv[j],"--freq") && more) {
@@ -482,7 +588,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--measure-noise")) {
             // Ignored
         } else if (!strcmp(argv[j],"--fix")) {
-            Modes.nfix_crc = 1;
+            Modes.nfix_crc = MODES_MAX_BITERRORS;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.nfix_crc = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
@@ -546,11 +652,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--hae") || !strcmp(argv[j],"--gnss")) {
             Modes.use_gnss = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
-#ifdef ALLOW_AGGRESSIVE
             Modes.nfix_crc = MODES_MAX_BITERRORS;
-#else
-            fprintf(stderr, "warning: --aggressive not supported in this build, option ignored.\n");
-#endif
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-ttl") && more) {
@@ -592,6 +694,12 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
+        } else if (!strcmp(argv[j],"--ppm") && more) {
+            Modes.ppm_error = atoi(argv[++j]);
+#ifdef HAVE_RTL_BIAST
+        } else if (!strcmp(argv[j], "--enable-rtlsdr-biast")) {
+            Modes.enable_rtlsdr_biast = 1;
+#endif
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
         } else if (!strcmp(argv[j],"--show-only") && more) {
@@ -620,6 +728,29 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+}
+
+//
+//=========================================================================
+//
+//
+//=========================================================================
+//
+int dump1090main(int argc, char **argv) {
+    // Set sane defaults
+    modesInitConfig();
+
+    // signal handlers:
+    install_signal_handlers(true);
+
+    //FILE *output = fopen("/tmp/dump1090.out", "w");
+    //FILE *err = fopen("/tmp/dump1090.err", "w");
+    //dup2(fileno(output), fileno(stdout));
+    //dup2(fileno(err), fileno(stderr));
+    //dup2(fileno(stdout), fileno(stderr));
+
+    // Parse the command line options
+    dump1090ParseArgs(argc, argv);
 
 #ifdef _WIN32
     // Try to comply with the Copyright license conditions for binary distribution
@@ -639,115 +770,16 @@ int main(int argc, char **argv) {
     }
 
     // init stats:
-    Modes.stats_current.start = Modes.stats_current.end =
-        Modes.stats_alltime.start = Modes.stats_alltime.end =
-        Modes.stats_periodic.start = Modes.stats_periodic.end =
-        Modes.stats_5min.start = Modes.stats_5min.end =
-        Modes.stats_15min.start = Modes.stats_15min.end = mstime();
-
-    for (j = 0; j < 15; ++j)
-        Modes.stats_1min[j].start = Modes.stats_1min[j].end = Modes.stats_current.start;
-
-    // write initial json files so they're not missing
-    writeJsonToFile("receiver.json", generateReceiverJson);
-    writeJsonToFile("stats.json", generateStatsJson);
-    writeJsonToFile("aircraft.json", generateAircraftJson);
+    modesInitStats();
 
     interactiveInit();
 
     // If the user specifies --net-only, just run in order to serve network
     // clients without reading data from the RTL device
     if (Modes.sdr_type == SDR_NONE) {
-        while (!Modes.exit) {
-            struct timespec start_time;
-
-            start_cpu_timing(&start_time);
-            backgroundTasks();
-            end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
-
-            usleep(100000);
-        }
+        mainLoopNetOnly();
     } else {
-        int watchdogCounter = 10; // about 1 second
-
-        // Create the thread that will read the data from the device.
-        pthread_mutex_lock(&Modes.data_mutex);
-        pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
-
-        while (!Modes.exit) {
-            struct timespec start_time;
-
-            if (Modes.first_free_buffer == Modes.first_filled_buffer) {
-                /* wait for more data.
-                 * we should be getting data every 50-60ms. wait for max 100ms before we give up and do some background work.
-                 * this is fairly aggressive as all our network I/O runs out of the background work!
-                 */
-
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_nsec += 100000000;
-                normalize_timespec(&ts);
-
-                pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts); // This unlocks Modes.data_mutex, and waits for Modes.data_cond
-            }
-
-            // Modes.data_mutex is locked, and possibly we have data.
-
-            // copy out reader CPU time and reset it
-            add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
-            Modes.reader_cpu_accumulator.tv_sec = 0;
-            Modes.reader_cpu_accumulator.tv_nsec = 0;
-
-            if (Modes.first_free_buffer != Modes.first_filled_buffer) {
-                // FIFO is not empty, process one buffer.
-
-                struct mag_buf *buf;
-
-                start_cpu_timing(&start_time);
-                buf = &Modes.mag_buffers[Modes.first_filled_buffer];
-
-                // Process data after releasing the lock, so that the capturing
-                // thread can read data while we perform computationally expensive
-                // stuff at the same time.
-                pthread_mutex_unlock(&Modes.data_mutex);
-
-                demodulate2400(buf);
-                if (Modes.mode_ac) {
-                    demodulate2400AC(buf);
-                }
-
-                Modes.stats_current.samples_processed += buf->length;
-                Modes.stats_current.samples_dropped += buf->dropped;
-                end_cpu_timing(&start_time, &Modes.stats_current.demod_cpu);
-
-                // Mark the buffer we just processed as completed.
-                pthread_mutex_lock(&Modes.data_mutex);
-                Modes.first_filled_buffer = (Modes.first_filled_buffer + 1) % MODES_MAG_BUFFERS;
-                pthread_cond_signal(&Modes.data_cond);
-                pthread_mutex_unlock(&Modes.data_mutex);
-                watchdogCounter = 10;
-            } else {
-                // Nothing to process this time around.
-                pthread_mutex_unlock(&Modes.data_mutex);
-                if (--watchdogCounter <= 0) {
-                    log_with_timestamp("No data received from the SDR for a long time, it may have wedged");
-                    watchdogCounter = 600;
-                }
-            }
-
-            start_cpu_timing(&start_time);
-            backgroundTasks();
-            end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
-
-            pthread_mutex_lock(&Modes.data_mutex);
-        }
-
-        pthread_mutex_unlock(&Modes.data_mutex);
-
-        log_with_timestamp("Waiting for receive thread termination");
-        pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
-        pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup - only after the reader thread is dead!
-        pthread_mutex_destroy(&Modes.data_mutex);
+        mainLoopSdr();
     }
 
     interactiveCleanup();
@@ -758,6 +790,9 @@ int main(int argc, char **argv) {
     }
 
     sdrClose();
+    
+    //fclose(output);
+    //fclose(err);
 
     if (Modes.exit == 1) {
         log_with_timestamp("Normal exit.");
@@ -767,6 +802,4 @@ int main(int argc, char **argv) {
         return 1;
     }
 }
-//
-//=========================================================================
-//
+
