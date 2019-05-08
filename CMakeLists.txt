@@ -77,6 +77,7 @@ endif()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -std=c11 -Wall -Werror")
 
 set(LIB_SOURCES
+	ais_charset.c ais_charset.h
 	anet.c anet.h
 	comm_b.c comm_b.h
 	convert.c convert.h

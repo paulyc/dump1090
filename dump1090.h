@@ -50,17 +50,6 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
-#define ALLOW_AGGRESSIVE 1
-
-// Default version number, if not overriden by the Makefile
-#ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.14-paulyc"
-#endif
-
-#ifndef MODES_DUMP1090_VARIANT
-# define MODES_DUMP1090_VARIANT     "dump1090-paulyc"
-#endif
-
 // ============================= Include files ==========================
 
 #ifndef _WIN32
@@ -87,12 +76,15 @@
 #endif
 
 #include "compat/compat.h"
+#include "ais_charset.h"
 
 // ============================= #defines ===============================
 
+#define ALLOW_AGGRESSIVE 1
+
 // Default version number, if not overriden by the Makefile
 #ifndef MODES_DUMP1090_VERSION
-# define MODES_DUMP1090_VERSION     "v1.14-custom"
+# define MODES_DUMP1090_VERSION     "v1.15-paulyc"
 #endif
 
 #ifndef MODES_DUMP1090_VARIANT
