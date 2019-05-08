@@ -1,5 +1,5 @@
 /*
- * Copyright (C) OpenSky Network 2018 / IMDEA Networks Institute
+ * Copyright (C) IMDEA Networks Institute
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,9 @@ void HPTOA::thread() {
                                                         msg->qMessage->bits_decoded,
                                                         msg->qMessage->modes_message->msgbits);
 
+                    msg->qMessage->modes_message->hpTimestampMsg = hp_toa;
+                    msg->qMessage->modes_message->timestampMsg = (uint64_t) msg->qMessage->modes_message->hpTimestampMsg;
+
                 } else if (msg->qMessage->enable_hptoa == high_precision_t::CORR_PULSE) {
 
                     hp_toa = this->get_hptoa_corr_pulse(msg->signal_upsampled, msg->signal_upsampled_len,
@@ -105,9 +108,10 @@ void HPTOA::thread() {
                                                         msg->qMessage->up_factor,
                                                         msg->qMessage->bits_decoded,
                                                         msg->qMessage->modes_message->msgbits);
-                }
 
-                msg->qMessage->modes_message->hpTimestampMsg = hp_toa;
+                    msg->qMessage->modes_message->hpTimestampMsg = hp_toa;
+                    msg->qMessage->modes_message->timestampMsg = (uint64_t) msg->qMessage->modes_message->hpTimestampMsg;
+                }
 
                 useModesMessage(msg->qMessage->modes_message);
 
@@ -122,7 +126,7 @@ void HPTOA::thread() {
 
 
         } else {
-            usleep(5);
+            usleep(0.1);
         }
     }
 
