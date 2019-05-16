@@ -32,7 +32,7 @@ find_path(libusb_INCLUDE libusb.h
 )
 
 set(LIB_INCLUDE_DIRS ${libusb_INCLUDE})
-
+set(LIB_INCLUDE_DIRS "/usr/local/lib ${LIB_INCLUDE_DIRS}")
 find_library(rtlsdr NAMES librtlsdr)
 find_path(rtlsdr_INCLUDE rtl-sdr.h)
 
@@ -51,13 +51,16 @@ set(SDR_SOURCES
 	sdr.h
 	sdr_ifile.c
 	sdr_ifile.h
+	sdr_rtlsdr.c
+	sdr_rtlsdr.h
 )
 
-if(rtlsdr)
-	set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${rtlsdr_INCLUDE}")
+if(TRUE)
+#	set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${rtlsdr_INCLUDE}")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_RTLSDR")
-	set(SDR_LIBS "${SDR_LIBS} rtlsdr")
-	set(SDR_SOURCES "${SDR_SOURCES} sdr_rtlsdr.c sdr_rtlsdr.h LimeSuite.h")
+	set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -lrtlsdr")
+#	set(SDR_LIBS "${SDR_LIBS} rtlsdr")
+#	set(SDR_SOURCES "${SDR_SOURCES} sdr_rtlsdr.c sdr_rtlsdr.h LimeSuite.h")
 endif()
 
 if(bladeRF)
@@ -77,6 +80,7 @@ endif()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -std=c11 -Wall -Werror")
 
 set(LIB_SOURCES
+	ais_charset.c ais_charset.h
 	anet.c anet.h
 	comm_b.c comm_b.h
 	convert.c convert.h
@@ -125,6 +129,7 @@ target_link_libraries(
 	1090
 
 	${SDR_LIBS}
+	rtlsdr
 	m
 	ncurses
 	usb-1.0
