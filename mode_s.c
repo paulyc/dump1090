@@ -341,7 +341,7 @@ int scoreModesMessage(unsigned char *msg, int validbits)
 
     case 17:   // Extended squitter
     case 18:   // Extended squitter/non-transponder
-    case 19:   // Extended squitter/military
+    //case 19:   // Extended squitter/military
         ei = modesChecksumDiagnose(crc, msgbits);
         if (!ei)
             return -2; // can't correct errors
@@ -470,7 +470,7 @@ int decodeModesMessage(struct modesMessage *mm, unsigned char *msg)
 
     case 17:   // Extended squitter
     case 18:   // Extended squitter/non-transponder
-    case 19:   // Extended squitter/military
+    //case 19:   // Extended squitter/military
     {
         struct errorinfo *ei;
         int addr1, addr2;
@@ -2149,7 +2149,7 @@ void useModesMessage(struct modesMessage *mm) {
     // forward messages when we have seen two of them.
 
     if (Modes.net) {
-        if (true || Modes.net_verbatim || mm->msgtype == 32 || !a) {
+        if (Modes.net_verbatim || mm->msgtype == 32 || !a) {
             // Unconditionally send
             modesQueueOutput(mm, a);
         } else if (a->messages > 1) {
