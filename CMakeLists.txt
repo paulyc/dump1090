@@ -38,60 +38,6 @@ endif()
 link_directories(/usr/local/lib)
 include_directories(/usr/local/include lib1090/src)
 
-find_library(usb-1.0 NAMES libusb-1.0 libusb usb-1.0)
-find_path(libusb_INCLUDE libusb.h
-        HINTS
-        /usr/include/libusb-1.0
-        /usr/local/include/libusb-1.0
-        /usr/include/libusb
-        /usr/local/include/libusb
-)
-
-set(LIB_INCLUDE_DIRS ${libusb_INCLUDE})
-set(LIB_INCLUDE_DIRS "/usr/local/lib ${LIB_INCLUDE_DIRS}")
-
-set(SDR_SOURCES
-        sdr.c
-        sdr.h
-        sdr_ifile.c
-        sdr_ifile.h
-)
-set(SDR_LIBS)
-
-find_library(rtlsdr NAMES librtlsdr rtlsdr)
-find_path(rtlsdr_INCLUDE rtl-sdr.h)
-
-if (rtlsdr_FOUND)
-    set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${rtlsdr_INCLUDE}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${rtlsdr_INCLUDE} -DENABLE_RTLSDR")
-    set(SDR_LIBS "${SDR_LIBS} rtlsdr")
-    set(SDR_SOURCES "${SDR_SOURCES} sdr_rtlsdr.c sdr_rtlsdr.h")
-endif()
-
-find_library(bladeRF NAMES libbladeRF bladeRF)
-find_path(bladeRF_INCLUDE libbladeRF.h)
-
-if (bladeRF_FOUND)
-    set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${bladeRF_INCLUDE}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${bladeRF_INCLUDE} -DENABLE_BLADERF")
-    set(SDR_LIBS "${SDR_LIBS} bladeRF")
-    set(SDR_SOURCES "${SDR_SOURCES} sdr_bladerf.c sdr_bladerf.h libbladeRF.h")
-endif()
-
-find_library(LimeSuite names LimeSuite libLimeSuite)
-find_path(LimeSuite_INCLUDE LimeSuite.h
-        HINTS
-        /usr/include/lime
-        /usr/local/include/lime
-)
-
-if(LimeSuite_FOUND)
-        set(LIB_INCLUDE_DIRS "${LIB_INCLUDE_DIRS} ${LimeSuite_INCLUDE}")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${LimeSuite_INCLUDE} -DENABLE_LIMESDR")
-        set(SDR_LIBS "${SDR_LIBS} LimeSuite")
-        set(SDR_SOURCES "${SDR_SOURCES} sdr_lime.c sdr_lime.h LimeSuite.h")
-endif()
-
 add_subdirectory(lib1090)
 add_subdirectory(dump1090)
 
