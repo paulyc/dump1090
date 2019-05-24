@@ -21,3 +21,8 @@ add_executable(faup1090 faup1090-main.c)
 target_link_libraries(faup1090 1090)
 add_executable(view1090 view1090-main.c)
 target_link_libraries(view1090 1090)
+
+INSTALL(
+    TARGETS dump1090 faup1090 view1090
+    RUNTIME DESTINATION bin
+)

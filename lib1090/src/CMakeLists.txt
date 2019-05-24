@@ -107,3 +107,10 @@ set_target_properties(1090 PROPERTIES
         VERSION 0.4.0
         SOVERSION 0
 )
+
+INSTALL(
+    TARGETS 1090
+    LIBRARY DESTINATION lib
+    #FILES lib1090.h
+    #DESTINATION include
+)

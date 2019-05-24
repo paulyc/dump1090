@@ -40,11 +40,3 @@ include_directories(/usr/local/include lib1090/src)
 
 add_subdirectory(lib1090)
 add_subdirectory(dump1090)
-
-INSTALL(
-    TARGETS dump1090 faup1090 view1090 1090
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
-    #FILES lib1090.h
-    #DESTINATION include
-)
