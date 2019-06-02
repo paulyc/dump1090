@@ -1,0 +1,25 @@
+# dump1090-fa service for systemd
+
+[Unit]
+Description=dump1090 ADS-B receiver (paulyc version)
+Documentation=https://flightaware.com/adsb/piaware/
+Wants=network.target
+After=network.target
+
+[Service]
+User=pi
+EnvironmentFile=-/tmp/adsbx-params
+EnvironmentFile=-/etc/default/dump1090-fa
+EnvironmentFile=-/etc/dump1090-fa.conf
+RuntimeDirectory=dump1090-fa
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/dump1090 --lat $LATITUDE --lon $LONGITUDE --write-json %t/dump1090-fa $RECEIVER_OPTIONS $DECODER_OPTIONS $NET_OPTIONS $JSON_OPTIONS $OUTPUT_OPTIONS
+SyslogIdentifier=dump1090-fa
+Type=simple
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=64
+Nice=-5
+
+[Install]
+WantedBy=default.target
