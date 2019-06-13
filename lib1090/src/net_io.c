@@ -1376,15 +1376,23 @@ char *generateAircraftJson(const char *url_path, int *len) {
         if (trackDataValid(&a->callsign_valid))
             p = safe_snprintf(p, end, ",\"flight\":\"%s\"", jsonEscapeString(a->callsign));
         if (trackDataValid(&a->airground_valid) && a->airground_valid.source >= SOURCE_MODE_S_CHECKED && a->airground == AG_GROUND)
-            p = safe_snprintf(p, end, ",\"alt_baro\":\"ground\"");
+            p = safe_snprintf(p, end, ",\"alt_baro\":\"ground\",\"altitude\":\"ground\"");
         else {
-            if (trackDataValid(&a->altitude_baro_valid))
-                p = safe_snprintf(p, end, ",\"alt_baro\":%d", a->altitude_baro);
-            if (trackDataValid(&a->altitude_geom_valid))
-                p = safe_snprintf(p, end, ",\"alt_geom\":%d", a->altitude_geom);
+            const bool alt_baro_valid = trackDataValid(&a->altitude_baro_valid);
+            const bool alt_geom_valid = trackDataValid(&a->altitude_geom_valid);
+            if (alt_baro_valid) { // print as generic altitude for older readers
+                p = safe_snprintf(p, end, ",\"alt_baro\":%d, \"altitude\":%d", a->altitude_baro, a->altitude_baro);
+            }
+            if (alt_geom_valid) {
+                if (alt_baro_valid) {
+                    p = safe_snprintf(p, end, ",\"alt_geom\":%d", a->altitude_geom);
+                } else { // print geometric as generic alititude for older readers if barometric not available
+                    p = safe_snprintf(p, end, ",\"alt_geom\":%d, \"altitude\":%d", a->altitude_geom, a->altitude_geom);
+                }
+            }
         }
         if (trackDataValid(&a->gs_valid))
-            p = safe_snprintf(p, end, ",\"gs\":%.1f", a->gs);
+            p = safe_snprintf(p, end, ",\"gs\":%.1f,\"speed\":%.1f", a->gs, a->gs);
         if (trackDataValid(&a->ias_valid))
             p = safe_snprintf(p, end, ",\"ias\":%u", a->ias);
         if (trackDataValid(&a->tas_valid))
