@@ -21,6 +21,28 @@ project(dump1090)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -std=c11 -Wall -Werror")
 
+set(LIB_SOURCES
+	ais_charset.c ais_charset.h
+	anet.c anet.h
+	comm_b.c comm_b.h
+	convert.c convert.h
+	cpr.c cpr.h
+	crc.c crc.h
+	demod_2400.c demod_2400.h
+	icao_filter.c icao_filter.h
+	interactive.c
+	lib1090.c lib1090.h
+	mode_ac.c
+	mode_s.c mode_s.h
+	net_io.c net_io.h
+	stats.c stats.h
+	track.c track.h
+	util.c util.h
+	dump1090.c
+	faup1090.c
+	view1090.c
+)
+
 if(APPLE)
   #for darwin build
   set(COMPAT_SOURCES compat/clock_nanosleep/clock_nanosleep.c compat/clock_nanosleep/clock_nanosleep.h)
