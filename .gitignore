@@ -3,7 +3,6 @@ build/
 lib1090.so*
 lib1090.dylib*
 *.o
-dump1090
 testfiles/*.bin
 misc
 frames.js
