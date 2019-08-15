@@ -1898,11 +1898,11 @@ function updatePiAwareOrFlightFeeder() {
 	if (isFlightFeeder) {
 		$('.piAwareLogo').hide();
 		$('.flightfeederLogo').show();
-		PageName = 'FlightFeeder Skyview';
+		PageName = 'FlightFeeder SkyAware';
 	} else {
 		$('.flightfeederLogo').hide();
 		$('.piAwareLogo').show();
-		PageName = 'PiAware Skyview';
+		PageName = 'PiAware SkyAware';
 	}
 	refreshPageTitle();
 }
