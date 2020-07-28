@@ -461,11 +461,11 @@ static void modesSendBeastCookedOutput(struct modesMessage *mm, struct aircraft 
     // Don't forward 2-bit-corrected messages
     if (mm->correctedbits >= 2)
         return;
-#endif
 
     // Don't forward unreliable messages
     if ((a && !a->reliable) && !mm->reliable)
         return;
+#endif
 
     writeBeastMessage(&Modes.beast_cooked_out, mm->timestampMsg, mm->signalLevel, mm->msg, mm->msgbits / 8);
 }
@@ -545,6 +545,7 @@ static void modesSendRawOutput(struct modesMessage *mm, struct aircraft *a) {
     if (mm->source == SOURCE_MLAT)
         return;
 
+#ifdef NOFORWARD_2BIT_ECC
     // Filter some messages
     // Don't forward 2-bit-corrected messages
     if (mm->correctedbits >= 2)
@@ -553,6 +554,7 @@ static void modesSendRawOutput(struct modesMessage *mm, struct aircraft *a) {
     // Don't forward unreliable messages
     if ((a && !a->reliable) && !mm->reliable)
         return;
+#endif
 
     int msgLen = mm->msgbits / 8;
     char *p = prepareWrite(&Modes.raw_out, msgLen*2 + 15);
@@ -615,14 +617,14 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     // Don't ever forward 2-bit-corrected messages via SBS output.
     if (mm->correctedbits >= 2)
         return;
+
+    // Don't ever send unreliable messages via SBS output
+    if (!mm->reliable && !a->reliable)
+        return;
 #endif
 
     // Don't ever forward mlat messages via SBS output.
     if (mm->source == SOURCE_MLAT)
-        return;
-
-    // Don't ever send unreliable messages via SBS output
-    if (!mm->reliable && !a->reliable)
         return;
 
     // For now, suppress non-ICAO addresses
