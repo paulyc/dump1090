@@ -93,9 +93,6 @@ struct aircraft *trackCreateAircraft(struct modesMessage *mm) {
     // don't immediately emit, let some data build up
     a->fatsv_last_emitted = a->fatsv_last_force_emit = messageNow();
 
-    // Copy the first message so we can emit it later when a second message arrives.
-    a->first_message = *mm;
-
     // initialize data validity ages
 #define F(f,s,e) do { a->f##_valid.stale_interval = (s) * 1000; a->f##_valid.expire_interval = (e) * 1000; } while (0)
     F(callsign,        60, 70);  // ADS-B or Comm-B
@@ -543,8 +540,12 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm)
             // Nonfatal, try again later.
             Modes.stats_current.cpr_global_skipped++;
         } else {
-            Modes.stats_current.cpr_global_ok++;
-            combine_validity(&a->position_valid, &a->cpr_even_valid, &a->cpr_odd_valid);
+            if (accept_data(&a->position_valid, mm->source)) {
+                Modes.stats_current.cpr_global_ok++;
+            } else {
+                Modes.stats_current.cpr_global_skipped++;
+                location_result = -2;
+            }
         }
     }
 
@@ -552,17 +553,12 @@ static void updatePosition(struct aircraft *a, struct modesMessage *mm)
     if (location_result == -1) {
         location_result = doLocalCPR(a, mm, &new_lat, &new_lon, &new_nic, &new_rc);
 
-        if (location_result < 0) {
-            Modes.stats_current.cpr_local_skipped++;
-        } else {
+        if (location_result == 0 && accept_data(&a->position_valid, mm->source)) {
             Modes.stats_current.cpr_local_ok++;
             mm->cpr_relative = 1;
-
-            if (mm->cpr_odd) {
-                a->position_valid = a->cpr_odd_valid;
-            } else {
-                a->position_valid = a->cpr_even_valid;
-            }
+        } else {
+            Modes.stats_current.cpr_local_skipped++;
+            location_result = -1;
         }
     }
 
@@ -898,6 +894,8 @@ static int altitude_to_feet(int raw, altitude_unit_t unit)
 struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
 {
     struct aircraft *a;
+    unsigned int cpr_new = 0;
+
 
     if (mm->msgtype == 32) {
         // Mode A/C, just count it (we ignore SPI)
@@ -927,13 +925,52 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
     a->seen      = messageNow();
     a->messages++;
 
+    // count reliable messages we receive; use them as a metric to
+    // decide when this is a real aircraft, not noise
+    if (mm->msgtype == 11 && mm->reliable) {
+        ++a->reliableDF11;
+    }
+
+    if (mm->msgtype == 17 && mm->reliable) {
+        ++a->reliableDF17;
+    }
+
+    if (a->reliableDF11 >= TRACK_RELIABLE_DF11_MESSAGES || a->reliableDF17 >= TRACK_RELIABLE_DF17_MESSAGES || a->messages >= TRACK_RELIABLE_ANY_MESSAGES) {
+        a->reliable = 1;
+    }
+
+    if (!mm->reliable && !a->reliable) {
+        // no further update from this message as we don't trust it
+        ++a->discarded;
+        return a;
+    }
+
     // update addrtype, we only ever go towards "more direct" types
     if (mm->addrtype < a->addrtype)
         a->addrtype = mm->addrtype;
 
-    // if we saw some direct ADS-B for the first time, assume version 0
-    if (mm->source == SOURCE_ADSB && a->adsb_version < 0)
-        a->adsb_version = 0;
+    // decide on where to stash the version
+    int dummy_version = -1; // used for non-adsb/adsr/tisb messages
+    int *message_version;
+
+    switch (mm->source) {
+    case SOURCE_ADSB:
+        message_version = &a->adsb_version;
+        break;
+    case SOURCE_TISB:
+        message_version = &a->tisb_version;
+        break;
+    case SOURCE_ADSR:
+        message_version = &a->adsr_version;
+        break;
+    default:
+        message_version = &dummy_version;
+        break;
+    }
+
+    // assume version 0 until we see something else
+    if (*message_version < 0)
+        *message_version = 0;
 
     // category shouldn't change over time, don't bother with metadata
     if (mm->category_valid) {
@@ -943,7 +980,8 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
     // operational status message
     // done early to update version / HRD / TAH
     if (mm->opstatus.valid) {
-        a->adsb_version = mm->opstatus.version;
+        *message_version = mm->opstatus.version;
+
         if (mm->opstatus.hrd != HEADING_INVALID) {
             a->adsb_hrd = mm->opstatus.hrd;
         }
@@ -953,7 +991,7 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
     }
 
     // fill in ADS-B v0 NACp, SIL from position message type
-    if (a->adsb_version == 0 && !mm->accuracy.nac_p_valid) {
+    if (*message_version == 0 && !mm->accuracy.nac_p_valid) {
         int computed_nacp = compute_v0_nacp(mm);
         if (computed_nacp != -1) {
             mm->accuracy.nac_p_valid = 1;
@@ -961,7 +999,7 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         }
     }
 
-    if (a->adsb_version == 0 && mm->accuracy.sil_type == SIL_INVALID) {
+    if (*message_version == 0 && mm->accuracy.sil_type == SIL_INVALID) {
         int computed_sil = compute_v0_sil(mm);
         if (computed_sil != -1) {
             mm->accuracy.sil_type = SIL_UNKNOWN;
@@ -1052,7 +1090,7 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
     }
 
     if (mm->gs_valid) {
-        mm->gs.selected = (a->adsb_version == 2 ? mm->gs.v2 : mm->gs.v0);
+        mm->gs.selected = (*message_version == 2 ? mm->gs.v2 : mm->gs.v0);
         if (accept_data(&a->gs_valid, mm->source)) {
             a->gs = mm->gs.selected;
         }
@@ -1123,6 +1161,7 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         a->cpr_even_lat = mm->cpr_lat;
         a->cpr_even_lon = mm->cpr_lon;
         compute_nic_rc_from_message(mm, a, &a->cpr_even_nic, &a->cpr_even_rc);
+        cpr_new = 1;
     }
 
     // CPR, odd
@@ -1131,6 +1170,7 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         a->cpr_odd_lat = mm->cpr_lat;
         a->cpr_odd_lon = mm->cpr_lon;
         compute_nic_rc_from_message(mm, a, &a->cpr_odd_nic, &a->cpr_odd_rc);
+        cpr_new = 1;
     }
 
     if (mm->accuracy.sda_valid && accept_data(&a->sda_valid, mm->source)) {
@@ -1182,8 +1222,8 @@ struct aircraft *trackUpdateFromMessage(struct modesMessage *mm)
         combine_validity(&a->altitude_geom_valid, &a->altitude_baro_valid, &a->geom_delta_valid);
     }
 
-    // If we've got a new cprlat or cprlon
-    if (mm->cpr_valid) {
+    // If we've got a new cpr_odd or cpr_even
+    if (cpr_new) {
         updatePosition(a, mm);
     }
 
@@ -1282,12 +1322,13 @@ static void trackRemoveStaleAircraft(uint64_t now)
     struct aircraft *prev = NULL;
 
     while(a) {
-        if ((now - a->seen) > TRACK_AIRCRAFT_TTL ||
-            (a->messages == 1 && (now - a->seen) > TRACK_AIRCRAFT_ONEHIT_TTL)) {
+        if ((now - a->seen) > TRACK_AIRCRAFT_TTL || (!a->reliable && (now - a->seen) > TRACK_AIRCRAFT_UNRELIABLE_TTL)) {
             // Count aircraft where we saw only one message before reaping them.
             // These are likely to be due to messages with bad addresses.
             if (a->messages == 1)
                 Modes.stats_current.single_message_aircraft++;
+            if (!a->reliable)
+                Modes.stats_current.unreliable_aircraft++;
 
             // Remove the element from the linked list, with care
             // if we are removing the first element

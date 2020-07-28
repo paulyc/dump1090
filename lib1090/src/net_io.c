@@ -67,9 +67,13 @@ static int handleBeastCommand(struct client *c, char *p);
 static int decodeBinMessage(struct client *c, char *p);
 static int decodeHexMessage(struct client *c, char *hex);
 
+static void moveNetClient(struct client *c, struct net_service *new_service);
+
 static void send_raw_heartbeat(struct net_service *service);
 static void send_beast_heartbeat(struct net_service *service);
 static void send_sbs_heartbeat(struct net_service *service);
+
+static void writeBeastMessage(struct net_writer *writer, uint64_t timestamp, double signalLevel, unsigned char *msg, int msgLen);
 
 static void writeFATSVEvent(struct modesMessage *mm, struct aircraft *a);
 static void writeFATSVPositionUpdate(float lat, float lon, float alt);
@@ -138,17 +142,14 @@ struct client *createGenericClient(struct net_service *service, int fd)
         exit(1);
     }
 
-    c->service    = service;
+    c->service    = NULL;
     c->next       = Modes.clients;
     c->fd         = fd;
     c->buflen     = 0;
     c->modeac_requested = 0;
     Modes.clients = c;
 
-    ++service->connections;
-    if (service->writer && service->connections == 1) {
-        service->writer->lastWrite = mstime(); // suppress heartbeat initially
-    }
+    moveNetClient(c, service);
 
     return c;
 }
@@ -249,8 +250,15 @@ void modesInitNet(void) {
     s = serviceInit("Raw TCP output", &Modes.raw_out, send_raw_heartbeat, READ_MODE_IGNORE, NULL, NULL);
     serviceListen(s, Modes.net_bind_address, Modes.net_output_raw_ports);
 
-    s = serviceInit("Beast TCP output", &Modes.beast_out, send_beast_heartbeat, READ_MODE_BEAST_COMMAND, NULL, handleBeastCommand);
-    serviceListen(s, Modes.net_bind_address, Modes.net_output_beast_ports);
+    // we maintain two output services, one producing a stream of verbatim messages, one producing a stream of cooked messages
+    // and switch clients between them if they request a change in mode
+    Modes.beast_cooked_service = serviceInit("Beast TCP output (cooked mode)", &Modes.beast_cooked_out, send_beast_heartbeat, READ_MODE_BEAST_COMMAND, NULL, handleBeastCommand);
+    Modes.beast_verbatim_service = serviceInit("Beast TCP output (verbatim mode)", &Modes.beast_verbatim_out, send_beast_heartbeat, READ_MODE_BEAST_COMMAND, NULL, handleBeastCommand);
+
+    if (Modes.net_verbatim)
+        serviceListen(Modes.beast_verbatim_service, Modes.net_bind_address, Modes.net_output_beast_ports);
+    else
+        serviceListen(Modes.beast_cooked_service, Modes.net_bind_address, Modes.net_output_beast_ports);
 
     s = serviceInit("Basestation TCP output", &Modes.sbs_out, send_sbs_heartbeat, READ_MODE_IGNORE, NULL, NULL);
     serviceListen(s, Modes.net_bind_address, Modes.net_output_sbs_ports);
@@ -434,14 +442,40 @@ ssize_t formatBeastMessage(struct modesMessage *mm, uint8_t *beastMsgOut, size_t
 //
 // Write raw output in Beast Binary format with Timestamp to TCP clients
 //
-static void modesSendBeastOutput(struct modesMessage *mm) {
-    int  msgLen = mm->msgbits / 8;
-    char *p = prepareWrite(&Modes.beast_out, 2 + 2 * (7 + msgLen));
+static void modesSendBeastVerbatimOutput(struct modesMessage *mm, struct aircraft __attribute__((unused)) *a) {
+    // Don't forward mlat messages, unless --forward-mlat is set
+    if (mm->source == SOURCE_MLAT && !Modes.forward_mlat)
+        return;
+
+    // Do verbatim output for all messages
+    writeBeastMessage(&Modes.beast_verbatim_out, mm->timestampMsg, mm->signalLevel, mm->verbatim, mm->msgbits / 8);
+}
+
+static void modesSendBeastCookedOutput(struct modesMessage *mm, struct aircraft *a) {
+    // Don't forward mlat messages, unless --forward-mlat is set
+    if (mm->source == SOURCE_MLAT && !Modes.forward_mlat)
+        return;
+
+#ifdef NOFORWARD_2BIT_ECC
+    // Filter some messages from cooked output
+    // Don't forward 2-bit-corrected messages
+    if (mm->correctedbits >= 2)
+        return;
+#endif
+
+    // Don't forward unreliable messages
+    if ((a && !a->reliable) && !mm->reliable)
+        return;
+
+    writeBeastMessage(&Modes.beast_cooked_out, mm->timestampMsg, mm->signalLevel, mm->msg, mm->msgbits / 8);
+}
+
+static void writeBeastMessage(struct net_writer *writer, uint64_t timestamp, double signalLevel, unsigned char *msg, int msgLen) {
     char ch;
     int  j;
     int sig;
-    unsigned char *msg = (Modes.net_verbatim ? mm->verbatim : mm->msg);
 
+    char *p = prepareWrite(writer, 2 + 2 * (7 + msgLen));
     if (!p)
         return;
 
@@ -456,21 +490,21 @@ static void modesSendBeastOutput(struct modesMessage *mm) {
       {return;}
 
     /* timestamp, big-endian */
-    *p++ = (ch = (mm->timestampMsg >> 40));
+    *p++ = (ch = (timestamp >> 40));
     if (0x1A == ch) {*p++ = ch; }
-    *p++ = (ch = (mm->timestampMsg >> 32));
+    *p++ = (ch = (timestamp >> 32));
     if (0x1A == ch) {*p++ = ch; }
-    *p++ = (ch = (mm->timestampMsg >> 24));
+    *p++ = (ch = (timestamp >> 24));
     if (0x1A == ch) {*p++ = ch; }
-    *p++ = (ch = (mm->timestampMsg >> 16));
+    *p++ = (ch = (timestamp >> 16));
     if (0x1A == ch) {*p++ = ch; }
-    *p++ = (ch = (mm->timestampMsg >> 8));
+    *p++ = (ch = (timestamp >> 8));
     if (0x1A == ch) {*p++ = ch; }
-    *p++ = (ch = (mm->timestampMsg));
+    *p++ = (ch = (timestamp));
     if (0x1A == ch) {*p++ = ch; }
 
-    sig = round(sqrt(mm->signalLevel) * 255);
-    if (mm->signalLevel > 0 && sig < 1)
+    sig = round(sqrt(signalLevel) * 255);
+    if (signalLevel > 0 && sig < 1)
         sig = 1;
     if (sig > 255)
         sig = 255;
@@ -482,7 +516,7 @@ static void modesSendBeastOutput(struct modesMessage *mm) {
         if (0x1A == ch) {*p++ = ch; }
     }
 
-    completeWrite(&Modes.beast_out, p);
+    completeWrite(writer, p);
 }
 
 static void send_beast_heartbeat(struct net_service *service)
@@ -506,12 +540,22 @@ static void send_beast_heartbeat(struct net_service *service)
 //
 // Write raw output to TCP clients
 //
-static void modesSendRawOutput(struct modesMessage *mm) {
-    int  msgLen = mm->msgbits / 8;
-    char *p = prepareWrite(&Modes.raw_out, msgLen*2 + 15);
-    int j;
-    unsigned char *msg = (Modes.net_verbatim ? mm->verbatim : mm->msg);
+static void modesSendRawOutput(struct modesMessage *mm, struct aircraft *a) {
+    // Don't ever forward mlat messages via raw output.
+    if (mm->source == SOURCE_MLAT)
+        return;
 
+    // Filter some messages
+    // Don't forward 2-bit-corrected messages
+    if (mm->correctedbits >= 2)
+        return;
+
+    // Don't forward unreliable messages
+    if ((a && !a->reliable) && !mm->reliable)
+        return;
+
+    int msgLen = mm->msgbits / 8;
+    char *p = prepareWrite(&Modes.raw_out, msgLen*2 + 15);
     if (!p)
         return;
 
@@ -523,7 +567,8 @@ static void modesSendRawOutput(struct modesMessage *mm) {
     } else
         *p++ = '*';
 
-    for (j = 0; j < msgLen; j++) {
+    unsigned char *msg = mm->msg;
+    for (int j = 0; j < msgLen; j++) {
         sprintf(p, "%02X", msg[j]);
         p += 2;
     }
@@ -561,6 +606,24 @@ static void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     struct timespec now;
     struct tm    stTime_receive, stTime_now;
     int          msgType;
+
+    // We require a tracked aircraft for SBS output
+    if (!a)
+        return;
+
+#ifdef NOFORWARD_2BIT_ECC
+    // Don't ever forward 2-bit-corrected messages via SBS output.
+    if (mm->correctedbits >= 2)
+        return;
+#endif
+
+    // Don't ever forward mlat messages via SBS output.
+    if (mm->source == SOURCE_MLAT)
+        return;
+
+    // Don't ever send unreliable messages via SBS output
+    if (!mm->reliable && !a->reliable)
+        return;
 
     // For now, suppress non-ICAO addresses
     if (mm->addr & MODES_NON_ICAO_ADDRESS)
@@ -779,29 +842,12 @@ static void send_sbs_heartbeat(struct net_service *service)
 //=========================================================================
 //
 void modesQueueOutput(struct modesMessage *mm, struct aircraft *a) {
-    int is_mlat = (mm->source == SOURCE_MLAT);
 
-    if (a && !is_mlat && (true || mm->correctedbits < 2)) {
-        // Don't ever forward 2-bit-corrected messages via SBS output.
-        // Don't ever forward mlat messages via SBS output.
-        modesSendSBSOutput(mm, a);
-    }
-
-    if (!is_mlat && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
-        // Forward 2-bit-corrected messages via raw output only if --net-verbatim is set
-        // Don't ever forward mlat messages via raw output.
-        modesSendRawOutput(mm);
-    }
-
-    if ((!is_mlat || Modes.forward_mlat) && (true || Modes.net_verbatim || mm->correctedbits < 2)) {
-        // Forward 2-bit-corrected messages via beast output only if --net-verbatim is set
-        // Forward mlat messages via beast output only if --forward-mlat is set
-        modesSendBeastOutput(mm);
-    }
-
-    if (a && !is_mlat) {
-        writeFATSVEvent(mm, a);
-    }
+    modesSendSBSOutput(mm, a);
+    modesSendRawOutput(mm, a);
+    modesSendBeastVerbatimOutput(mm, a);
+    modesSendBeastCookedOutput(mm, a);
+    writeFATSVEvent(mm, a);
 }
 
 // Decode a little-endian IEEE754 float (binary32)
@@ -888,6 +934,29 @@ void sendBeastSettings(struct client *c, const char *settings)
     anetWrite(c->fd, buf, len);
 }
 
+// Move a network client to a new service
+static void moveNetClient(struct client *c, struct net_service *new_service)
+{
+    if (c->service == new_service)
+        return;
+
+    if (c->service) {
+        // Flush to ensure correct message framing
+        if (c->service->writer)
+            flushWrites(c->service->writer);
+        --c->service->connections;
+    }
+
+    if (new_service) {
+        // Flush to ensure correct message framing
+        if (new_service->writer)
+            flushWrites(new_service->writer);
+        ++new_service->connections;
+    }
+
+    c->service = new_service;
+}
+
 //
 // Handle a Beast command message.
 // Currently, we just look for the Mode A/C command message
@@ -902,13 +971,20 @@ static int handleBeastCommand(struct client *c, char *p) {
     switch (p[1]) {
     case 'j':
         c->modeac_requested = 0;
+        autoset_modeac();
         break;
     case 'J':
         c->modeac_requested = 1;
+        autoset_modeac();
+        break;
+    case 'v':
+        moveNetClient(c, Modes.beast_cooked_service);
+        break;
+    case 'V':
+        moveNetClient(c, Modes.beast_verbatim_service);
         break;
     }
 
-    autoset_modeac();
     return 0;
 }
 
@@ -1359,7 +1435,7 @@ char *generateAircraftJson(const char *url_path, int *len) {
                        Modes.stats_current.messages_total + Modes.stats_alltime.messages_total);
 
     for (a = Modes.aircrafts; a; a = a->next) {
-        if (a->messages < 2) { // basic filter for bad decodes
+        if (!a->reliable) {
             continue;
         }
 
@@ -1565,7 +1641,8 @@ static char * appendStatsJson(char *p,
                            ",\"altitude_suppressed\":%u"
                            ",\"cpu\":{\"demod\":%llu,\"reader\":%llu,\"background\":%llu}"
                            ",\"tracks\":{\"all\":%u"
-                           ",\"single_message\":%u}"
+                           ",\"single_message\":%u"
+                           ",\"unreliable\":%u}"
                            ",\"messages\":%u}",
                            st->cpr_surface,
                            st->cpr_airborne,
@@ -1587,6 +1664,7 @@ static char * appendStatsJson(char *p,
                            (unsigned long long)background_cpu_millis,
                            st->unique_aircraft,
                            st->single_message_aircraft,
+                           st->unreliable_aircraft,
                            st->messages_total);
     }
 
@@ -1945,7 +2023,7 @@ __attribute__ ((format (printf,4,5))) static char *appendFATSV(char *p, char *en
 }
 
 #define TSV_MAX_PACKET_SIZE 800
-#define TSV_VERSION "6E"
+#define TSV_VERSION "7E"
 
 static void writeFATSVPositionUpdate(float lat, float lon, float alt)
 {
@@ -2016,7 +2094,7 @@ static void writeFATSVEvent(struct modesMessage *mm, struct aircraft *a)
         return; // not enabled or no active connections
     }
 
-    if (a->messages < 2)  // basic filter for bad decodes
+    if (!a || mm->source == SOURCE_MLAT || (!a->reliable && !mm->reliable))
         return;
 
     switch (mm->msgtype) {
@@ -2088,6 +2166,9 @@ static inline float heading_difference(float h1, float h2)
     case SOURCE_TISB:
         sourcetype = "T";
         break;
+    case SOURCE_ADSR:
+        sourcetype = "R";
+        break;
     case SOURCE_ADSB:
         sourcetype = "A";
         break;
@@ -2158,7 +2239,7 @@ static void writeFATSV()
     next_update = now + 1000;
 
     for (a = Modes.aircrafts; a; a = a->next) {
-        if (a->messages < 2)  // basic filter for bad decodes
+        if (!a->reliable)
             continue;
 
         // don't emit if it hasn't updated since last time

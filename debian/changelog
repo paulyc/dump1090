@@ -1,8 +1,77 @@
-dump1090-fa (3.7.2~dev) UNRELEASED; urgency=medium
+dump1090-fa (3.8.2~dev) UNRELEASED; urgency=medium
 
   * in development
+  * --fix --fix was a bad choice for 2-bit correction since some existing configs
+    accidentally specified it twice anyway. Change 2-bit correction to a separate
+    option, --fix-2bit
 
- -- Eric Tran <eric.tran@flightaware.com>  Wed, 31 Jul 2019 11:27:00 -6000
+ -- Oliver Jowett <oliver.jowett@flightaware.com>  Sat, 02 May 2020 14:50:25 +0800
+
+dump1090-fa (3.8.1) stable; urgency=medium
+
+  * SkyAware: Fixed SkyAware banner aspect ratio
+  * SkyAware: Fixed issue with "Group By Data Type" and "All Aircraft Trails" checkboxes
+    not saving across browser refreshes
+  * SkyAware: Fixed bug with ShowFlags=False config.js setting
+  * SkyAware: Added position age to aircraft detail pane
+  * SkyAware: Added ability to customize range ring distances in SkyAware
+
+ -- Eric Tran <eric.tran@flightaware.com>  Thu, 19 Mar 2020 09:20:00 -6000
+
+dump1090-fa (3.8.0) stable; urgency=medium
+
+  * general: Added support for building on Buster.
+  * general: Replace use of usleep with nanosleep (PR #53)
+
+  * dump1090: When applying CRC correction to a DF11 message, assume that the interrogator
+    overlay value was 0 (e.g. as in an acquisiton squitter) and use the full 24-bit syndrome
+    to correct errors; do not zero out the low 7 bits of the syndrome.
+  * dump1090: Changes in aircraft tracking to try to reduce the number of bogus aircraft seen
+    due to noise; this replaces the crude "require 2 messages" metric used previously.
+  * dump1090: Added a new statistic for "unreliable tracks", aircraft that were tracked but
+    which never passed the threshold for being considered a real aircraft.
+  * dump1090: Added support for per-connection verbatim mode. "--net-verbatim" now controls the
+    default connection setting, and the per-connection mode can be changed by a Beast settings
+    command.
+  * dump1090: Replaced "--aggressive" with "--fix --fix" for 2-bit CRC correction; include
+    support for this in the standard build. 2-bit corrected messages are only emitted on
+    verbatim connections.
+  * dump1090: Update package default options: include "--fix", increase "--net-ro-size",
+    decrease "--net-ro-interval", remove a duplicated "--net-bo-port" option.
+  * dump1090: Fixes to CPR decoding when multiple position sources (e.g. ADS-B and MLAT) are
+    being simultaneously received (PR #55)
+  * dump1090: Track ADS-B, ADS-R, and TIS-B versions independently; use the appropriate version
+    when decoding version-dependent messages.
+
+  * view1090: Include ADS-B version in interactive display
+  * view1090: Display a warning in the header in interactive mode if the dump1090 connection
+    has been lost
+  * view1090: Request verbatim mode when connecting to dump1090
+  * view1090: Exit on connection loss in --no-interactive mode
+
+  * SkyAware: Corrected icon selection for some aircraft types
+  * SkyAware: Fixed display of settings checkboxes on high-DPI displays (PR #54)
+  * SkyAware: Fixes to info box display (PR #51)
+  * SkyAware: Hide scroll bar when not needed (PR #22)
+  * SkyAware: Update aircraft registry to 20191216
+
+ -- Oliver Jowett <oliver.jowett@flightaware.com>  Mon, 30 Dec 2019 22:11:52 +0800
+
+dump1090-fa (3.7.2) stable; urgency=medium
+
+  * dump1090: Fix reversed sense of Track Angle/Heading bit in surface opstatus messages
+  * dump1090: Have filter-regs emit a special value "-COMPUTED-" for filtered data
+    values, rather than blanking them out entirely
+  * Fix registration side mappings with a non-zero offset
+  * dump1090: Update aircraft DB to 20190816
+  * dump1090: Reject outright libbladerf that's too old
+  * dump1090: Trigger build after bladeRF build; turn off build durability; turn
+    off concurrent builds
+  * SkyAware: SkyAware Renaming
+  * SkyAware: Fix some display errors for ground vehicles
+  * SkyAware: Fix aircraft trail handling
+
+ -- Eric Tran <eric.tran@flightaware.com>  Mon, 09 Sep 2019 09:25:00 -6000
 
 dump1090-fa (3.7.1) stable; urgency=medium
 

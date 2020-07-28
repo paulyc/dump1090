@@ -124,7 +124,6 @@ void view1090Init(void) {
     modesChecksumInit(Modes.nfix_crc);
     icaoFilterInit();
     modeACInit();
-    interactiveInit();
 }
 
 static void sigintHandler(int dummy) {
@@ -150,14 +149,21 @@ static void showHelp(void) {
   "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
   "--max-range <distance>   Absolute maximum range for position decoding (in nm, default: 300)\n"
   "--no-crc-check           Disable messages with broken CRC (discouraged)\n"
-  "--no-fix                 Disable single-bits error correction using CRC\n"
   "--fix                    Enable single-bits error correction using CRC\n"
-  "--aggressive             More CPU for more messages (two bits fixes, ...)\n"
+  "                         (specify twice for two-bit error correction)\n"
+  "--no-fix                 Disable error correction using CRC\n"
   "--metric                 Use metric units (meters, km/h, ...)\n"
   "--show-only <addr>       Show only messages from the given ICAO on stdout\n"
   "--help                   Show this help\n",
   MODES_DUMP1090_VARIANT " " MODES_DUMP1090_VERSION
     );
+}
+
+void sendSettings(struct client *c)
+{
+    sendBeastSettings(c, "CdV"); // Beast binary format, no filters, verbatim mode on
+    sendBeastSettings(c, Modes.mode_ac ? "J" : "j");  // Mode A/C on or off
+    sendBeastSettings(c, Modes.check_crc ? "f" : "F");  // CRC checks on or off
 }
 
 //
@@ -204,8 +210,6 @@ int view1090main(int argc, char **argv) {
             Modes.nfix_crc = MODES_MAX_BITERRORS;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.nfix_crc = 0;
-        } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.nfix_crc = MODES_MAX_BITERRORS;
         } else if (!strcmp(argv[j],"--max-range") && more) {
             Modes.maxRange = atof(argv[++j]) * 1852.0; // convert to metres
         } else if (!strcmp(argv[j],"--help")) {
@@ -224,6 +228,9 @@ int view1090main(int argc, char **argv) {
 #define MSG_DONTWAIT 0
 #endif
 
+    if (Modes.nfix_crc > MODES_MAX_BITERRORS)
+        Modes.nfix_crc = MODES_MAX_BITERRORS;
+
     // Initialization
     view1090Init();
     modesInitNet();
@@ -232,31 +239,37 @@ int view1090main(int argc, char **argv) {
     s = makeBeastInputService();
     c = serviceConnect(s, bo_connect_ipaddr, bo_connect_port);
     if (!c) {
+        interactiveCleanup();
         fprintf(stderr, "Failed to connect to %s:%d: %s\n", bo_connect_ipaddr, bo_connect_port, Modes.aneterr);
         exit(1);
     }
-
-    sendBeastSettings(c, "Cd"); // Beast binary format, no filters
-    sendBeastSettings(c, Modes.mode_ac ? "J" : "j");  // Mode A/C on or off
-    sendBeastSettings(c, Modes.check_crc ? "f" : "F");  // CRC checks on or off
+    sendSettings(c);
 
     // Keep going till the user does something that stops us
+    interactiveInit();
     while (!Modes.exit) {
+        struct timespec r = { 0, 100 * 1000 * 1000};
         icaoFilterExpire();
         trackPeriodicUpdate();
         modesNetPeriodicWork();
 
-        if (Modes.interactive)
-            interactiveShowData();
+        interactiveShowData();
 
         if (s->connections == 0) {
+            if (!Modes.interactive)
+                break;
+
             // lost input connection, try to reconnect
-            usleep(1000000);
+            interactiveNoConnection();
+            sleep(1);
             c = serviceConnect(s, bo_connect_ipaddr, bo_connect_port);
+            if (c) {
+                sendSettings(c);
+            }
             continue;
         }
 
-        usleep(100000);
+        nanosleep(&r, NULL);
     }
 
     interactiveCleanup();

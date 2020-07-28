@@ -56,11 +56,13 @@
 
 #include <stdarg.h>
 
+struct _Modes Modes;
+
 //
 // ============================= Utility functions ==========================
 //
 
-struct modes_t Modes;
+struct _Modes Modes;
 
 static bool reset_signal_handlers = true;
 
@@ -587,8 +589,10 @@ static void dump1090ParseArgs(int argc, char **argv) {
             Modes.dc_filter = 1;
         } else if (!strcmp(argv[j],"--measure-noise")) {
             // Ignored
-        } else if (!strcmp(argv[j],"--fix")) {
-            Modes.nfix_crc = MODES_MAX_BITERRORS;
+            if (Modes.nfix_crc < 1)
+                Modes.nfix_crc = 1;
+        } else if (!strcmp(argv[j],"--fix-2bit")) {
+            Modes.nfix_crc = 2;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.nfix_crc = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
@@ -652,7 +656,7 @@ static void dump1090ParseArgs(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--hae") || !strcmp(argv[j],"--gnss")) {
             Modes.use_gnss = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.nfix_crc = MODES_MAX_BITERRORS;
+            fprintf(stderr, "warning: --aggressive not supported in this build, option ignored (consider '--fix --fix' instead)\n");
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-ttl") && more) {
@@ -757,6 +761,9 @@ int dump1090main(int argc, char **argv) {
     if (!Modes.quiet) {showCopyright();}
 #endif
 
+    if (Modes.nfix_crc > MODES_MAX_BITERRORS)
+        Modes.nfix_crc = MODES_MAX_BITERRORS;
+
     // Initialization
     log_with_timestamp("%s %s starting up.", MODES_DUMP1090_VARIANT, MODES_DUMP1090_VERSION);
     modesInit();
@@ -777,7 +784,16 @@ int dump1090main(int argc, char **argv) {
     // If the user specifies --net-only, just run in order to serve network
     // clients without reading data from the RTL device
     if (Modes.sdr_type == SDR_NONE) {
-        mainLoopNetOnly();
+        while (!Modes.exit) {
+            struct timespec start_time;
+            struct timespec slp = { 0, 100 * 1000 * 1000};
+
+            start_cpu_timing(&start_time);
+            backgroundTasks();
+            end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+
+            nanosleep(&slp, NULL);
+        }
     } else {
         mainLoopSdr();
     }

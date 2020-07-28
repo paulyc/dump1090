@@ -30,6 +30,9 @@ ifndef CC
     CC=clang
   endif
 endif
+DIALECT = -std=c11
+CFLAGS += $(DIALECT) -O2 -g -Wall -Werror -W -D_DEFAULT_SOURCE -fno-common
+LIBS = -lpthread -lm -lrt
 
 ifeq ($(RTLSDR), yes)
   SDR_OBJ += sdr_rtlsdr.o

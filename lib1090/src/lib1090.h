@@ -75,7 +75,7 @@ struct lib1090Config_t {
 };
 
 void lib1090GetConfig(struct lib1090Config_t **configOut);
-void lib1090GetModes(struct modes_t** modesOut);
+void lib1090GetModes(struct _Modes** modesOut);
 
 int lib1090Init();
 int lib1090Uninit();
